@@ -25,6 +25,7 @@ class RedPoleGUI:
         self.sat_var = tk.DoubleVar(value=0.7)
         self.val_var = tk.DoubleVar(value=0.7)
         self.bpm_var = tk.StringVar(value="70")
+        self.mode_var = tk.StringVar(value="tape")
 
         self._build_controls()
         self._build_layer_list()
@@ -40,39 +41,48 @@ class RedPoleGUI:
             row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8)
         )
 
+        ttk.Label(frame, text="Mode").grid(row=1, column=0, sticky="w")
+        mode_box = ttk.Combobox(
+            frame, textvariable=self.mode_var, state="readonly",
+            values=list(self.engine.MODES), width=10,
+        )
+        mode_box.grid(row=1, column=1, sticky="w", pady=(0, 4))
+        mode_box.bind("<<ComboboxSelected>>",
+                      lambda _e: self.engine.set_mode(self.mode_var.get()))
+
         ttk.Button(frame, text="Pick Color...", command=self._on_pick_color).grid(
-            row=1, column=0, columnspan=2, sticky="ew", pady=(0, 4)
+            row=2, column=0, columnspan=2, sticky="ew", pady=(0, 4)
         )
 
-        ttk.Label(frame, text="Hue").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="Hue").grid(row=3, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.hue_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=2, column=1, sticky="ew")
+        ).grid(row=3, column=1, sticky="ew")
 
-        ttk.Label(frame, text="Saturation").grid(row=3, column=0, sticky="w")
+        ttk.Label(frame, text="Saturation").grid(row=4, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.sat_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=3, column=1, sticky="ew")
+        ).grid(row=4, column=1, sticky="ew")
 
-        ttk.Label(frame, text="Value").grid(row=4, column=0, sticky="w")
+        ttk.Label(frame, text="Value").grid(row=5, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.val_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=4, column=1, sticky="ew")
+        ).grid(row=5, column=1, sticky="ew")
 
-        ttk.Label(frame, text="BPM").grid(row=5, column=0, sticky="w")
+        ttk.Label(frame, text="BPM").grid(row=6, column=0, sticky="w")
         ttk.Entry(frame, textvariable=self.bpm_var, width=8).grid(
-            row=5, column=1, sticky="w"
+            row=6, column=1, sticky="w"
         )
 
         self.swatch = tk.Canvas(frame, width=40, height=40, highlightthickness=1)
-        self.swatch.grid(row=1, column=2, rowspan=4, padx=8)
+        self.swatch.grid(row=2, column=2, rowspan=4, padx=8)
         self._update_swatch()
 
         ttk.Button(frame, text="Send", command=self._on_send).grid(
-            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0)
+            row=7, column=0, columnspan=3, sticky="ew", pady=(8, 0)
         )
 
     def _current_color_hex(self):
@@ -121,6 +131,10 @@ class RedPoleGUI:
         (self.bloom_line,) = self.ax.plot(
             zeros, color="tab:green", alpha=0.35, linewidth=1.0,
             label="bloom (amp mod)",
+        )
+        (self.wet_line,) = self.ax.plot(
+            zeros, color="tab:purple", alpha=0.35, linewidth=1.0,
+            label="added texture (wet)",
         )
         # Foreground trace: the audible post-modulation output.
         (self.line,) = self.ax.plot(
@@ -204,7 +218,9 @@ class RedPoleGUI:
         data = self.engine.visual_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         warble = self.engine.warble_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         bloom = self.engine.bloom_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
+        wet = self.engine.wet_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         self.line.set_ydata(data)
         self.warble_line.set_ydata(warble / MAX_WARBLE_DEPTH)
         self.bloom_line.set_ydata(bloom / MAX_BLOOM_DEPTH)
+        self.wet_line.set_ydata(wet)
         self.canvas.draw_idle()
