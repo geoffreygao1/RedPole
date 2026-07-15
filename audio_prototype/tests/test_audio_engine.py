@@ -293,6 +293,28 @@ def test_reverb_layers_do_not_duck_or_add_signal():
     np.testing.assert_allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
 
 
+def test_many_layers_with_feedback_stay_bounded():
+    """20 layers + live analysis + long reverb must not overload."""
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.live_analysis = True
+    engine.reverb_mix = 1.0
+    for i in range(10):
+        engine.registry.add(hue=0.02, sat=0.8, val=1.0, bpm=40, engine="spectral")
+        engine.registry.add(hue=0.05, sat=0.8, val=1.0, bpm=40, engine="granular")
+
+    for _ in range(150):
+        block = engine.generate_block(1024)
+        assert not np.any(np.isnan(block))
+
+    wet = engine.wet_buffer.read_latest(1024 * 40)
+    wet_rms = float(np.sqrt(np.mean(wet**2)))
+    # limiter holds sustained wet energy near its target instead of
+    # letting it pin the soft clipper
+    assert wet_rms < 0.5
+    assert engine.wet_limiter.gain < 1.0
+
+
 def test_live_analysis_flag_changes_spectral_behavior():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))

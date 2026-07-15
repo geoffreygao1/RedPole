@@ -6,7 +6,7 @@ import numpy as np
 
 from granular_processor import GranularProcessor
 from layers import LayerRegistry
-from modulation import combine_layers, soft_clip
+from modulation import RmsLimiter, combine_layers, soft_clip
 from reverb import SchroederReverb
 from ring_buffer import RingBuffer
 from spectral_processor import FFT_SIZE, SpectralProcessor, analyze_frame, analyze_loop
@@ -42,6 +42,9 @@ class AudioEngine:
         self.granular = GranularProcessor(samplerate, seed=seed)
         self.reverb = SchroederReverb(samplerate)
         self.reverb_mix = 0.35
+        # Guards the wet bus against sustained overload (many layers,
+        # live-analysis feedback, long reverb tails all stacking up).
+        self.wet_limiter = RmsLimiter(target_rms=0.35)
         self.live_analysis = False
         # 0 = dry loop only, 0.5 = balanced (default), 1 = wet texture only.
         self.wet_dry = 0.5
@@ -189,7 +192,9 @@ class AudioEngine:
             self.reverb.set_feedback(self._rv_feedback)
             self.reverb.set_cutoff(self._rv_cutoff)
 
-            wet = wet_raw + self.reverb_mix * self.reverb.process(wet_raw)
+            wet = self.wet_limiter.process(
+                wet_raw + self.reverb_mix * self.reverb.process(wet_raw)
+            )
             # Wet/dry balance: 0 = dry only, 0.5 = both full, 1 = wet only.
             mix = self.wet_dry
             dry_gain = min(1.0, 2.0 * (1.0 - mix))

@@ -79,7 +79,7 @@ class SpectralProcessor:
     (+/-7 st across the finger gamut), sat -> blur, val -> voice level.
     """
 
-    VOICE_LEVEL = 0.6
+    VOICE_LEVEL = 0.35
 
     def __init__(self, samplerate, seed=None):
         self.samplerate = samplerate

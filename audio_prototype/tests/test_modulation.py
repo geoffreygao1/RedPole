@@ -68,6 +68,44 @@ def test_combine_layers_clamps_depth_with_many_layers():
     assert combined["bloom_depth"] == pytest.approx(mod.MAX_BLOOM_DEPTH)
 
 
+def test_limiter_passes_quiet_signal_unchanged():
+    lim = mod.RmsLimiter(target_rms=0.35)
+    x = 0.1 * np.sin(np.linspace(0, 40 * np.pi, 4096))
+    out = lim.process(x)
+    np.testing.assert_allclose(out, x, atol=1e-6)
+    assert lim.gain == pytest.approx(1.0, abs=0.01)
+
+
+def test_limiter_tames_sustained_loud_signal():
+    lim = mod.RmsLimiter(target_rms=0.35)
+    x = 0.9 * np.sin(np.linspace(0, 40 * np.pi, 1024))
+    out = None
+    for _ in range(30):
+        out = lim.process(x)
+    rms = float(np.sqrt(np.mean(out**2)))
+    assert rms <= 0.35 * 1.15  # settles at (or just above) the target
+    assert lim.gain < 1.0
+
+
+def test_limiter_recovers_after_loud_passage():
+    lim = mod.RmsLimiter(target_rms=0.35)
+    loud = 0.9 * np.sin(np.linspace(0, 40 * np.pi, 1024))
+    for _ in range(30):
+        lim.process(loud)
+    assert lim.gain < 1.0
+    quiet = 0.05 * np.sin(np.linspace(0, 40 * np.pi, 1024))
+    for _ in range(400):
+        lim.process(quiet)
+    assert lim.gain == pytest.approx(1.0, abs=0.05)
+
+
+def test_limiter_handles_silence():
+    lim = mod.RmsLimiter(target_rms=0.35)
+    out = lim.process(np.zeros(1024))
+    np.testing.assert_allclose(out, np.zeros(1024))
+    assert not np.any(np.isnan(out))
+
+
 def test_soft_clip_leaves_small_values_untouched():
     x = np.array([-0.5, 0.0, 0.5, 0.89])
     np.testing.assert_allclose(mod.soft_clip(x, threshold=0.9), x)

@@ -57,6 +57,31 @@ def combine_layers(layers):
     return {"warble_depth": warble_depth, "bloom_depth": bloom_depth, "rate_hz": rate_hz}
 
 
+class RmsLimiter:
+    """Block-rate auto-gain that tames sustained energy overloads.
+
+    The soft clipper bounds instantaneous peaks, but with many stacked
+    layers (and reverb feedback) the signal just sits pinned at the clip
+    ceiling -- audibly an overload. This limiter watches block RMS and
+    rides its gain down fast when the signal exceeds target_rms, then
+    recovers slowly when things calm back down.
+    """
+
+    def __init__(self, target_rms=0.35, attack=0.5, release=0.02):
+        self.target_rms = target_rms
+        self.attack = attack
+        self.release = release
+        self.gain = 1.0
+
+    def process(self, x):
+        x = np.asarray(x)
+        rms = float(np.sqrt(np.mean(x**2)))
+        desired = 1.0 if rms < 1e-9 else min(1.0, self.target_rms / rms)
+        coeff = self.attack if desired < self.gain else self.release
+        self.gain += coeff * (desired - self.gain)
+        return x * self.gain
+
+
 def soft_clip(x, threshold=0.9):
     """Identity below `threshold`; tanh-compresses toward +/-1 above it.
 
