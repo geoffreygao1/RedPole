@@ -6,7 +6,12 @@ PER_LAYER_MIN_WARBLE = 0.001
 PER_LAYER_MAX_WARBLE = 0.004
 PER_LAYER_MIN_BLOOM = 0.02
 PER_LAYER_MAX_BLOOM = 0.12
-FINGER_GAMUT_HALF_WIDTH = 0.06
+FINGER_HUE_MIN = 0.0
+FINGER_HUE_MAX = 0.085
+FINGER_SAT_MIN = 0.64
+FINGER_SAT_MAX = 0.72
+FINGER_VAL_MIN = 0.90
+FINGER_VAL_MAX = 0.98
 
 
 def clamp(value, min_v, max_v):
@@ -17,16 +22,32 @@ def bpm_to_hz(bpm):
     return bpm / 60.0
 
 
-def hue_to_bipolar(hue):
-    """Map hue to [-1, +1] across the realistic finger-scan gamut.
+def _window_to_unit(value, min_v, max_v):
+    if max_v <= min_v:
+        return 0.0
+    return clamp((value - min_v) / (max_v - min_v), 0.0, 1.0)
 
-    Red (hue 0.0/1.0) is center = 0; +FINGER_GAMUT_HALF_WIDTH toward
-    orange-pink maps to +1, the same distance toward crimson maps to -1.
-    Hues outside the gamut clamp, so the narrow band of real finger reds
-    spans the full modulation range.
+
+def hue_to_unit(hue):
+    return _window_to_unit(hue, FINGER_HUE_MIN, FINGER_HUE_MAX)
+
+
+def sat_to_unit(sat):
+    return _window_to_unit(sat, FINGER_SAT_MIN, FINGER_SAT_MAX)
+
+
+def val_to_unit(val):
+    return _window_to_unit(val, FINGER_VAL_MIN, FINGER_VAL_MAX)
+
+
+def hue_to_bipolar(hue):
+    """Map hue to [-1, +1] across the current red-to-orange picker gamut.
+
+    The GUI now emits a bright red-to-orange range, not the older
+    crimson-to-orange symmetric window. Red maps to -1, orange maps to
+    +1, and values outside the picker gamut clamp.
     """
-    d = ((hue + 0.5) % 1.0) - 0.5  # signed hue distance from red
-    return clamp(d / FINGER_GAMUT_HALF_WIDTH, -1.0, 1.0)
+    return 2.0 * hue_to_unit(hue) - 1.0
 
 
 def hue_to_warble_depth(hue_norm):
@@ -35,8 +56,8 @@ def hue_to_warble_depth(hue_norm):
 
 
 def sat_val_to_bloom_depth(sat, val):
-    sat = clamp(sat, 0.0, 1.0)
-    val = clamp(val, 0.0, 1.0)
+    sat = sat_to_unit(sat)
+    val = val_to_unit(val)
     avg = (sat + val) / 2.0
     return PER_LAYER_MIN_BLOOM + avg * (PER_LAYER_MAX_BLOOM - PER_LAYER_MIN_BLOOM)
 

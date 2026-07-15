@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from tape_modulator import TapeModulator
+import modulation as mod
+from tape_modulator import TapeModulator, amplitude_focus_controls
 
 
 def test_process_returns_requested_length():
@@ -73,3 +74,71 @@ def test_output_stays_within_soft_clip_range():
     tm = TapeModulator(samplerate=44100, seed=1)
     out = tm.process(loop, frames=500, warble_depth=0.02, bloom_depth=0.6, rate_hz=3.0)
     assert np.all(np.abs(out) < 1.0)
+
+
+def test_hue_controls_tape_amplitude_focus():
+    low = amplitude_focus_controls(
+        hue=mod.FINGER_HUE_MIN,
+        sat=(mod.FINGER_SAT_MIN + mod.FINGER_SAT_MAX) / 2,
+        val=mod.FINGER_VAL_MAX,
+        bpm=120.0,
+    )
+    center = amplitude_focus_controls(
+        hue=(mod.FINGER_HUE_MIN + mod.FINGER_HUE_MAX) / 2,
+        sat=(mod.FINGER_SAT_MIN + mod.FINGER_SAT_MAX) / 2,
+        val=mod.FINGER_VAL_MAX,
+        bpm=120.0,
+    )
+    high = amplitude_focus_controls(
+        hue=mod.FINGER_HUE_MAX,
+        sat=(mod.FINGER_SAT_MIN + mod.FINGER_SAT_MAX) / 2,
+        val=mod.FINGER_VAL_MAX,
+        bpm=120.0,
+    )
+
+    assert low["focus_hz"] < center["focus_hz"]
+    assert high["focus_hz"] > center["focus_hz"]
+
+
+def test_saturation_sharpens_tape_amplitude_contour():
+    smooth = amplitude_focus_controls(
+        hue=mod.FINGER_HUE_MIN,
+        sat=mod.FINGER_SAT_MIN,
+        val=mod.FINGER_VAL_MAX,
+        bpm=120.0,
+    )
+    sharp = amplitude_focus_controls(
+        hue=mod.FINGER_HUE_MIN,
+        sat=mod.FINGER_SAT_MAX,
+        val=mod.FINGER_VAL_MAX,
+        bpm=120.0,
+    )
+
+    assert sharp["contrast"] > smooth["contrast"]
+    assert sharp["smoothing_hz"] > smooth["smoothing_hz"]
+
+
+def test_source_amplitude_contour_drives_gain():
+    loop = np.concatenate(
+        [
+            np.full(256, 0.1, dtype=np.float32),
+            np.full(256, 0.9, dtype=np.float32),
+            np.full(256, 0.1, dtype=np.float32),
+            np.full(256, 0.9, dtype=np.float32),
+        ]
+    )
+    tm = TapeModulator(samplerate=44100, seed=1)
+    tm.process(
+        loop,
+        frames=1024,
+        warble_depth=0.0,
+        bloom_depth=0.8,
+        rate_hz=2.0,
+        hue=0.0,
+        sat=1.0,
+        val=1.0,
+    )
+
+    quiet_gain = float(np.mean(tm.last_gain[:256]))
+    loud_gain = float(np.mean(tm.last_gain[256:512]))
+    assert abs(loud_gain - quiet_gain) > 0.05

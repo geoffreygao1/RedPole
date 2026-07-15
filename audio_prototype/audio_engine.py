@@ -4,18 +4,42 @@ import soundfile as sf
 import sounddevice as sd
 import numpy as np
 
+from crowd import CrowdState, EntryGestureTracker
+from frequency_mod_processor import FrequencyModProcessor
 from granular_processor import GranularProcessor
 from layers import LayerRegistry
-from modulation import RmsLimiter, combine_layers, soft_clip
+from microcosm_processor import MicrocosmProcessor
+from modulation import (
+    RmsLimiter,
+    combine_layers,
+    hue_to_bipolar,
+    hue_to_unit,
+    sat_to_unit,
+    soft_clip,
+    val_to_unit,
+)
 from reverb import SchroederReverb
 from ring_buffer import RingBuffer
-from spectral_processor import FFT_SIZE, SpectralProcessor, analyze_frame, analyze_loop
+from spectral_processor import (
+    FFT_SIZE,
+    HOP_SIZE,
+    SpectralProcessor,
+    analyze_frame,
+    analyze_loop,
+)
 from tape_modulator import TapeModulator
 from wet_bus import WetBusManager
 
 VISUALIZER_BUFFER_SECONDS = 2.0
+MAX_LOOP_SECONDS = 600.0
+MAX_ANALYSIS_SECONDS = 120.0
+LOAD_CHUNK_FRAMES = 262144
 DUCK_PER_LAYER = 0.12
 DUCK_FLOOR = 0.5
+WET_DUCK_DEPTH = 0.38
+WET_DUCK_FLOOR = 0.55
+WET_DUCK_ATTACK = 0.18
+WET_DUCK_RELEASE = 0.012
 REVERB_DEFAULT_FEEDBACK = 0.84
 REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
@@ -23,12 +47,102 @@ REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
 
 def bpm_to_reverb_feedback(bpm):
     """Slow, calm pulses open a long wash; fast pulses tighten the room."""
-    return min(0.92, max(0.72, 0.95 - 0.001 * bpm))
+    return min(0.985, max(0.82, 0.99 - 0.00025 * bpm))
 
 
 def val_to_reverb_cutoff(val):
     """Dark crimsons give a muffled tail; bright pinks keep it airy."""
-    return 800.0 + 7000.0 * min(1.0, max(0.0, val))
+    return 800.0 + 7000.0 * val_to_unit(val)
+
+
+def hue_to_reverb_style(hue):
+    hue = min(0.999999, hue_to_unit(hue))
+    return ("bright_room", "dark_medium", "large_hall", "ambient")[int(hue * 4)]
+
+
+def reverb_layer_controls(layers):
+    if not layers:
+        return {
+            "style": "bright_room",
+            "size": 0.35,
+            "diffusion": 0.45,
+            "send": 0.0,
+            "val": 0.0,
+            "bpm": 120.0,
+            "wash": False,
+        }
+
+    wash = any(l.get("patch_col") == 4 for l in layers)
+    n = len(layers)
+    weights = np.array(
+        [0.2 + l["sat"] + l["val"] for l in layers],
+        dtype=np.float64,
+    )
+    hues = np.array([l["hue"] for l in layers], dtype=np.float64)
+    sats = np.array([l["sat"] for l in layers], dtype=np.float64)
+    vals = np.array([l["val"] for l in layers], dtype=np.float64)
+    bpms = np.array([l["bpm"] for l in layers], dtype=np.float64)
+    hue = float(np.average(hues, weights=weights))
+    sat = float(np.average([sat_to_unit(s) for s in sats], weights=weights))
+    val = float(np.average([val_to_unit(v) for v in vals], weights=weights))
+    bpm = float(np.average(bpms, weights=weights))
+    density = min(1.0, np.sqrt(n / 6.0))
+
+    return {
+        "style": "wash" if wash else hue_to_reverb_style(hue),
+        "size": min(1.0, (0.48 if wash else 0.22) + 0.38 * sat + 0.30 * density),
+        "diffusion": min(1.0, (0.55 if wash else 0.28) + 0.30 * sat + 0.25 * density),
+        "send": min(1.0, (0.18 if wash else 0.10) + 0.45 * val + 0.55 * density),
+        "val": val,
+        "bpm": bpm,
+        "wash": wash,
+    }
+
+
+def resample_linear(data, source_rate, target_rate):
+    if source_rate == target_rate or len(data) == 0:
+        return data.astype(np.float32)
+    target_len = max(1, int(round(len(data) * target_rate / source_rate)))
+    source_x = np.linspace(0.0, 1.0, len(data), endpoint=False)
+    target_x = np.linspace(0.0, 1.0, target_len, endpoint=False)
+    return np.interp(target_x, source_x, data).astype(np.float32)
+
+
+def read_mono_audio(path, max_seconds=None):
+    if max_seconds is None:
+        max_seconds = MAX_LOOP_SECONDS
+    chunks = []
+    with sf.SoundFile(path) as file:
+        file_rate = file.samplerate
+        frames_to_read = len(file)
+        if max_seconds is not None:
+            frames_to_read = min(frames_to_read, max(1, int(max_seconds * file_rate)))
+
+        remaining = frames_to_read
+        while remaining > 0:
+            block = file.read(
+                min(LOAD_CHUNK_FRAMES, remaining),
+                dtype="float32",
+                always_2d=True,
+            )
+            if len(block) == 0:
+                break
+            chunks.append(block.mean(axis=1).astype(np.float32))
+            remaining -= len(block)
+
+    if not chunks:
+        return np.zeros(0, dtype=np.float32), file_rate
+    return np.concatenate(chunks).astype(np.float32), file_rate
+
+
+def wet_duck_curve(wet, state=0.0):
+    curve = np.empty(len(wet), dtype=np.float32)
+    env = float(state)
+    for i, sample in enumerate(np.abs(wet)):
+        alpha = WET_DUCK_ATTACK if sample > env else WET_DUCK_RELEASE
+        env += alpha * (float(sample) - env)
+        curve[i] = max(WET_DUCK_FLOOR, 1.0 - WET_DUCK_DEPTH * min(1.0, env))
+    return curve, env
 
 
 class AudioEngine:
@@ -38,12 +152,17 @@ class AudioEngine:
         self.samplerate = samplerate
         self.blocksize = blocksize
         self.registry = LayerRegistry()
+        self.entry_gestures = EntryGestureTracker(samplerate)
+        self._stereo_rng = np.random.default_rng(None if seed is None else seed + 7919)
+        self._glitch_pan = 0.0
+        self._stereo_side_state = 0.0
         self.modulator = TapeModulator(samplerate=samplerate, seed=seed)
-        self.spectral = SpectralProcessor(samplerate, seed=seed)
+        self.spectral = FrequencyModProcessor(samplerate, seed=seed)
         self.granular = GranularProcessor(samplerate, seed=seed)
+        self.microcosm = MicrocosmProcessor(samplerate, seed=seed)
         self.reverb = SchroederReverb(samplerate)
         self.wet_bus = WetBusManager(samplerate)
-        self.reverb_mix = 0.35
+        self.reverb_mix = 0.75
         # Guards the wet bus against sustained overload (many layers,
         # live-analysis feedback, long reverb tails all stacking up).
         self.wet_limiter = RmsLimiter(target_rms=0.35)
@@ -52,6 +171,7 @@ class AudioEngine:
         self.wet_dry = 0.5
         self._rv_feedback = REVERB_DEFAULT_FEEDBACK
         self._rv_cutoff = REVERB_DEFAULT_CUTOFF
+        self._wet_duck_state = 0.0
         buf_len = int(samplerate * VISUALIZER_BUFFER_SECONDS)
         self.visual_buffer = RingBuffer(buf_len)
         # Tape-mode control signals (warble pitch deviation, bloom gain-1):
@@ -64,7 +184,7 @@ class AudioEngine:
         self._mode = "mixed"
         self._mode_lock = threading.Lock()
         self._dry_pos = 0
-        self._paused = False
+        self._paused = True
         # Rolling window of recent output for live spectral analysis.
         self._analysis_window = np.zeros(FFT_SIZE, dtype=np.float32)
 
@@ -94,16 +214,13 @@ class AudioEngine:
             self._stream.start()
 
     def load_loop(self, path):
-        data, file_rate = sf.read(path, dtype="float32", always_2d=True)
-        if file_rate != self.samplerate:
-            raise ValueError(
-                f"Loop file sample rate {file_rate} does not match engine "
-                f"sample rate {self.samplerate}"
-            )
-        self.loop_array = data.mean(axis=1).astype("float32")
+        mono, file_rate = read_mono_audio(path)
+        self.loop_array = resample_linear(mono, file_rate, self.samplerate)
         self._dry_pos = 0
         try:
-            self.spectral.set_analysis(analyze_loop(self.loop_array, self.samplerate))
+            max_analysis = max(1, int(MAX_ANALYSIS_SECONDS * self.samplerate))
+            analysis_source = self.loop_array[:max_analysis]
+            self.spectral.set_analysis(analyze_loop(analysis_source, self.samplerate))
         except Exception:
             # Spectral mode degrades to dry playback rather than crashing.
             self.spectral.set_analysis(None)
@@ -126,68 +243,124 @@ class AudioEngine:
         if self.loop_array is None:
             raise RuntimeError("No loop loaded; call load_loop() first")
         layers = self.registry.snapshot()
+        crowd = CrowdState.from_layers(layers)
+        entry = self.entry_gestures.process(layers, frames, crowd.density)
         mode = self.mode
         zeros = np.zeros(frames, dtype=np.float32)
 
         if mode == "tape":
             combined = combine_layers(layers)
+            avg_hue = sum(l["hue"] for l in layers) / len(layers) if layers else 0.0
+            avg_sat = sum(l["sat"] for l in layers) / len(layers) if layers else 0.5
+            avg_val = sum(l["val"] for l in layers) / len(layers) if layers else 1.0
             block = self.modulator.process(
                 self.loop_array,
                 frames,
                 combined["warble_depth"],
-                combined["bloom_depth"],
+                combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
                 combined["rate_hz"],
+                hue=avg_hue,
+                sat=avg_sat,
+                val=avg_val,
             )
             self.warble_buffer.write(self.modulator.last_warble_signal)
             self.bloom_buffer.write(self.modulator.last_gain - 1.0)
             self.wet_buffer.write(zeros)
         else:
+            source_pos = None
             if mode == "mixed":
                 tape_layers = [l for l in layers if l["engine"] == "tape"]
                 spec_layers = [l for l in layers if l["engine"] == "spectral"]
                 gran_layers = [l for l in layers if l["engine"] == "granular"]
+                micro_layers = [
+                    l for l in layers
+                    if l["engine"] in ("microloop", "granules", "glitch", "multidelay")
+                ]
                 reverb_layers = [l for l in layers if l["engine"] == "reverb"]
                 combined = combine_layers(tape_layers)
+                avg_hue = (
+                    sum(l["hue"] for l in tape_layers) / len(tape_layers)
+                    if tape_layers
+                    else 0.0
+                )
+                avg_sat = (
+                    sum(l["sat"] for l in tape_layers) / len(tape_layers)
+                    if tape_layers
+                    else 0.5
+                )
+                avg_val = (
+                    sum(l["val"] for l in tape_layers) / len(tape_layers)
+                    if tape_layers
+                    else 1.0
+                )
                 # Zero-depth tape processing is an exact dry passthrough,
                 # so the base stays continuous when no tape layers exist.
+                source_pos = self.modulator._read_pos
                 base = self.modulator.process(
                     self.loop_array,
                     frames,
                     combined["warble_depth"],
-                    combined["bloom_depth"],
+                    combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
                     combined["rate_hz"],
+                    hue=avg_hue,
+                    sat=avg_sat,
+                    val=avg_val,
                 )
             else:
                 spec_layers = layers if mode == "spectral" else []
                 gran_layers = layers if mode == "granular" else []
+                micro_layers = []
                 reverb_layers = []
+                source_pos = self._dry_pos
                 base = self._next_dry(frames)
 
             live_frame = None
             if self.live_analysis and spec_layers:
                 live_frame = analyze_frame(self._analysis_window, self.samplerate)
 
-            wet_raw = self.spectral.process(
-                self.loop_array, frames, spec_layers, live_frame=live_frame
-            ) + self.granular.process(self.loop_array, frames, gran_layers)
+            spectral_wet = self.spectral.process(
+                self.loop_array,
+                frames,
+                spec_layers,
+                live_frame=live_frame,
+                scan_start=source_pos / HOP_SIZE,
+            )
+            granular_wet = self.granular.process(
+                self.loop_array,
+                frames,
+                gran_layers,
+                source_pos=source_pos,
+            )
+            micro_wet = self.microcosm.process(
+                self.loop_array,
+                frames,
+                micro_layers,
+                source_pos=source_pos,
+            )
+            spectral_wet *= 1.0 + entry.engine_gain("spectral")
+            granular_wet *= 1.0 + entry.engine_gain("granular")
+            wet_raw = spectral_wet + granular_wet + micro_wet
 
-            n_wet = len(spec_layers) + len(gran_layers)
+            n_wet = len(spec_layers) + len(gran_layers) + len(micro_layers)
             duck = max(DUCK_FLOOR, 1.0 / (1.0 + DUCK_PER_LAYER * n_wet))
 
             # Reverb is itself an assignable engine: reverb-assigned layers
-            # add no signal of their own but shape the shared room -- their
-            # average pulse sets the decay, their average brightness colors
-            # the tail. No reverb layers -> drift back to neutral defaults.
+            # add no signal of their own but send the source into the shared
+            # room. Average pulse and brightness set global room character.
+            # No reverb layers -> drift back to neutral defaults.
             if reverb_layers:
                 n_rv = len(reverb_layers)
-                target_fb = bpm_to_reverb_feedback(
-                    sum(l["bpm"] for l in reverb_layers) / n_rv
-                )
-                target_cut = val_to_reverb_cutoff(
-                    sum(l["val"] for l in reverb_layers) / n_rv
-                )
+                rv_controls = reverb_layer_controls(reverb_layers)
+                rv_val = rv_controls["val"]
+                if rv_controls["wash"]:
+                    target_fb = min(0.994, max(0.955, 0.996 - 0.00012 * rv_controls["bpm"]))
+                    target_cut = min(4800.0, 700.0 + 4200.0 * rv_val)
+                else:
+                    target_fb = bpm_to_reverb_feedback(rv_controls["bpm"])
+                    target_cut = val_to_reverb_cutoff(rv_val)
             else:
                 n_rv = 0
+                rv_controls = reverb_layer_controls([])
                 target_fb = REVERB_DEFAULT_FEEDBACK
                 target_cut = REVERB_DEFAULT_CUTOFF
             controls = self.wet_bus.controls(
@@ -200,21 +373,37 @@ class AudioEngine:
             self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
             self.reverb.set_feedback(self._rv_feedback)
             self.reverb.set_cutoff(self._rv_cutoff)
+            self.reverb.set_space(
+                style=rv_controls["style"],
+                size=rv_controls["size"],
+                diffusion=rv_controls["diffusion"],
+            )
 
             managed_wet_raw = self.wet_bus.process(
                 wet_raw,
                 wet_voice_count=n_wet,
                 reverb_layer_count=n_rv,
             )
+            if not reverb_layers:
+                source_reverb_send = zeros
+            else:
+                rv_send = min(1.0, rv_controls["send"] + entry.engine_gain("reverb"))
+                source_reverb_send = (rv_send * base).astype(np.float32)
+            reverb_input = managed_wet_raw + source_reverb_send
             wet = self.wet_limiter.process(
                 managed_wet_raw
-                + self.reverb_mix * self.reverb.process(managed_wet_raw)
+                + self.reverb_mix * self.reverb.process(reverb_input)
             )
             # Wet/dry balance: 0 = dry only, 0.5 = both full, 1 = wet only.
             mix = self.wet_dry
             dry_gain = min(1.0, 2.0 * (1.0 - mix))
             wet_gain = min(1.0, 2.0 * mix)
-            block = soft_clip(dry_gain * duck * base + wet_gain * wet).astype(
+            wet_duck, self._wet_duck_state = wet_duck_curve(
+                managed_wet_raw,
+                self._wet_duck_state,
+            )
+            dry_curve = duck * wet_duck
+            block = soft_clip(dry_gain * dry_curve * base + wet_gain * wet).astype(
                 np.float32
             )
             if mode == "mixed":
@@ -231,17 +420,55 @@ class AudioEngine:
         self.visual_buffer.write(block)
         return block
 
+    def _effect_pan(self, layers):
+        pan_layers = [l for l in layers if l["engine"] != "reverb"]
+        if not pan_layers:
+            return 0.0
+
+        if any(l["engine"] == "glitch" for l in pan_layers):
+            if self._stereo_rng.random() < 0.42:
+                self._glitch_pan = float(self._stereo_rng.choice((-0.95, -0.65, 0.65, 0.95)))
+            return self._glitch_pan
+
+        weighted = sum(
+            hue_to_bipolar(l["hue"]) * (0.25 + sat_to_unit(l["sat"]))
+            for l in pan_layers
+        )
+        weight_total = sum(0.25 + sat_to_unit(l["sat"]) for l in pan_layers)
+        return float(np.clip(weighted / max(1e-9, weight_total), -0.85, 0.85))
+
+    def generate_stereo_block(self, frames):
+        mono = self.generate_block(frames)
+        layers = self.registry.snapshot()
+        pan = self._effect_pan(layers)
+        if abs(pan) < 1e-6:
+            return np.column_stack([mono, mono]).astype(np.float32)
+
+        wet = self.wet_buffer.read_latest(frames)
+        raw_side = 0.42 * pan * wet
+        side = np.empty(frames, dtype=np.float64)
+        state = self._stereo_side_state
+        alpha = 0.08
+        for i, sample in enumerate(raw_side):
+            state += alpha * (sample - state)
+            side[i] = state
+        self._stereo_side_state = state
+        left = soft_clip(mono - side)
+        right = soft_clip(mono + side)
+        return np.column_stack([left, right]).astype(np.float32)
+
     def _callback(self, outdata, frames, time_info, status):
-        outdata[:, 0] = self.generate_block(frames)
+        outdata[:, :] = self.generate_stereo_block(frames)
 
     def start(self):
         self._stream = sd.OutputStream(
             samplerate=self.samplerate,
             blocksize=self.blocksize,
-            channels=1,
+            channels=2,
             callback=self._callback,
         )
-        self._stream.start()
+        if not self._paused:
+            self._stream.start()
 
     def stop(self):
         if self._stream is not None:

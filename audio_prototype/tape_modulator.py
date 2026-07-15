@@ -1,8 +1,25 @@
 import numpy as np
 
+from modulation import clamp, hue_to_bipolar, sat_to_unit, val_to_unit
 from modulation import soft_clip
 
 SAMPLE_RATE_DEFAULT = 44100
+AMPLITUDE_FOCUS_BASE_HZ = 1200.0
+AMPLITUDE_FOCUS_SPAN_OCTAVES = 2.0
+
+
+def amplitude_focus_controls(hue, sat, val, bpm):
+    sat = sat_to_unit(sat)
+    val = val_to_unit(val)
+    bpm = clamp(bpm, 20.0, 300.0)
+    bpm_norm = (bpm - 20.0) / 280.0
+    return {
+        "focus_hz": AMPLITUDE_FOCUS_BASE_HZ
+        * 2.0 ** (AMPLITUDE_FOCUS_SPAN_OCTAVES * hue_to_bipolar(hue)),
+        "contrast": 0.5 + 1.5 * sat,
+        "smoothing_hz": 0.8 + 10.0 * bpm_norm + 8.0 * sat,
+        "depth_scale": val,
+    }
 
 
 class TapeModulator:
@@ -42,7 +59,34 @@ class TapeModulator:
             out[i] = prev
         return out, prev
 
-    def process(self, loop_array, frames, warble_depth, bloom_depth, rate_hz):
+    def _source_contour(self, samples, controls):
+        env = np.abs(samples).astype(np.float64)
+        mean = float(np.mean(env))
+        if mean <= 1e-9:
+            return np.zeros(len(samples), dtype=np.float64)
+
+        contour = env / mean - 1.0
+        contour *= controls["contrast"]
+        alpha = self._one_pole_alpha(controls["smoothing_hz"])
+        out = np.empty(len(samples), dtype=np.float64)
+        prev = self._bloom_state
+        for i, sample in enumerate(contour):
+            prev = alpha * prev + (1.0 - alpha) * sample
+            out[i] = prev
+        self._bloom_state = prev
+        return np.clip(out, -1.0, 1.0)
+
+    def process(
+        self,
+        loop_array,
+        frames,
+        warble_depth,
+        bloom_depth,
+        rate_hz,
+        hue=0.0,
+        sat=0.5,
+        val=1.0,
+    ):
         loop_len = len(loop_array)
         t = np.arange(frames) / self.samplerate
 
@@ -79,10 +123,13 @@ class TapeModulator:
         frac = positions - np.floor(positions)
         output = loop_array[idx0] * (1.0 - frac) + loop_array[idx1] * frac
 
-        bloom_noise, self._bloom_state = self._smoothed_noise(
-            frames, self._bloom_state, cutoff_hz=0.05 + 0.1 * rate_hz
+        controls = amplitude_focus_controls(hue, sat, val, rate_hz * 60.0)
+        contour = self._source_contour(output, controls)
+        gain = np.clip(
+            1.0 + bloom_depth * controls["depth_scale"] * contour,
+            0.05,
+            1.95,
         )
-        gain = np.clip(1.0 + bloom_depth * bloom_noise, 0.05, 1.95)
         output = output * gain
 
         self.last_warble_signal = (warble_depth * raw_warble).astype(np.float32)

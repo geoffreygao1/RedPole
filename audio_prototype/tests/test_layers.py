@@ -35,10 +35,102 @@ def test_reverb_is_a_valid_engine():
     assert reg.snapshot()[0]["engine"] == "reverb"
 
 
+def test_microcosm_families_are_valid_engines():
+    reg = LayerRegistry()
+    for engine in ("microloop", "granules", "glitch", "multidelay"):
+        reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine=engine)
+
+    assert [layer["engine"] for layer in reg.snapshot()] == [
+        "microloop",
+        "granules",
+        "glitch",
+        "multidelay",
+    ]
+
+
 def test_add_rejects_unknown_engine():
     reg = LayerRegistry()
     with pytest.raises(ValueError):
         reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="delay")
+
+
+def test_add_source_does_not_create_active_layer_until_connected():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+
+    assert reg.snapshot() == []
+    assert reg.sources_snapshot() == [
+        {
+            "id": source_id,
+            "hue": 0.1,
+            "sat": 0.5,
+            "val": 0.5,
+            "bpm": 70,
+            "route": None,
+        }
+    ]
+
+
+def test_connect_source_creates_active_layer_with_patch_metadata():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+
+    reg.connect_source(source_id, engine="granules", row=1, col=3)
+
+    assert reg.snapshot() == [
+        {
+            "id": source_id,
+            "source_id": source_id,
+            "hue": 0.1,
+            "sat": 0.5,
+            "val": 0.5,
+            "bpm": 70,
+            "engine": "granules",
+            "patch_row": 1,
+            "patch_col": 3,
+        }
+    ]
+    assert reg.sources_snapshot()[0]["route"] == {
+        "engine": "granules",
+        "patch_row": 1,
+        "patch_col": 3,
+    }
+
+
+def test_reconnecting_source_moves_existing_route():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+
+    reg.connect_source(source_id, engine="granules", row=1, col=3)
+    reg.connect_source(source_id, engine="glitch", row=2, col=0)
+
+    snap = reg.snapshot()
+    assert len(snap) == 1
+    assert snap[0]["engine"] == "glitch"
+    assert snap[0]["patch_row"] == 2
+    assert snap[0]["patch_col"] == 0
+
+
+def test_disconnect_source_removes_active_layer_but_keeps_source():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+    reg.connect_source(source_id, engine="granules", row=1, col=3)
+
+    reg.disconnect_source(source_id)
+
+    assert reg.snapshot() == []
+    assert reg.sources_snapshot()[0]["route"] is None
+
+
+def test_remove_source_removes_source_and_route():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+    reg.connect_source(source_id, engine="granules", row=1, col=3)
+
+    reg.remove_source(source_id)
+
+    assert reg.snapshot() == []
+    assert reg.sources_snapshot() == []
 
 
 def test_remove_deletes_only_that_layer():
