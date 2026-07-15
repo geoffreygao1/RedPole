@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+audio_prototype/.venv
+audio_prototype/__pycache__
+audio_prototype/**/__pycache__
