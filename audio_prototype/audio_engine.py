@@ -16,6 +16,10 @@ class AudioEngine:
         self.registry = LayerRegistry()
         self.modulator = TapeModulator(samplerate=samplerate, seed=seed)
         self.visual_buffer = RingBuffer(int(samplerate * VISUALIZER_BUFFER_SECONDS))
+        # Modulation control signals for visualization: warble stores the
+        # depth-scaled pitch deviation, bloom stores (gain - 1.0).
+        self.warble_buffer = RingBuffer(int(samplerate * VISUALIZER_BUFFER_SECONDS))
+        self.bloom_buffer = RingBuffer(int(samplerate * VISUALIZER_BUFFER_SECONDS))
         self.loop_array = None
         self._stream = None
 
@@ -41,6 +45,8 @@ class AudioEngine:
             combined["rate_hz"],
         )
         self.visual_buffer.write(block)
+        self.warble_buffer.write(self.modulator.last_warble_signal)
+        self.bloom_buffer.write(self.modulator.last_gain - 1.0)
         return block
 
     def _callback(self, outdata, frames, time_info, status):

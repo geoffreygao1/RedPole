@@ -22,6 +22,11 @@ class TapeModulator:
         self._flutter_phase = 0.0
         self._jitter_state = 0.0
         self._bloom_state = 0.0
+        # Most recent control signals from process(), for visualization:
+        # last_warble_signal is the depth-scaled pitch deviation (rate - 1),
+        # last_gain is the bloom amplitude multiplier (centered on 1.0).
+        self.last_warble_signal = np.zeros(0, dtype=np.float32)
+        self.last_gain = np.ones(0, dtype=np.float32)
 
     def _one_pole_alpha(self, cutoff_hz):
         cutoff_hz = max(cutoff_hz, 1e-6)
@@ -79,5 +84,8 @@ class TapeModulator:
         )
         gain = np.clip(1.0 + bloom_depth * bloom_noise, 0.05, 1.95)
         output = output * gain
+
+        self.last_warble_signal = (warble_depth * raw_warble).astype(np.float32)
+        self.last_gain = gain.astype(np.float32)
 
         return soft_clip(output).astype(np.float32)

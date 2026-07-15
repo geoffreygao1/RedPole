@@ -47,6 +47,27 @@ def test_nonzero_warble_depth_changes_output():
     assert not np.allclose(dry, wet)
 
 
+def test_process_exposes_modulation_signals():
+    loop = np.linspace(-0.5, 0.5, 1000, dtype=np.float32)
+    tm = TapeModulator(samplerate=44100, seed=1)
+    tm.process(loop, frames=512, warble_depth=0.02, bloom_depth=0.5, rate_hz=1.5)
+    assert tm.last_warble_signal.shape == (512,)
+    assert tm.last_gain.shape == (512,)
+    # warble signal is depth-scaled, so bounded by the depth passed in
+    assert np.all(np.abs(tm.last_warble_signal) <= 0.02 + 1e-9)
+    # gain is centered on 1.0
+    assert np.all(tm.last_gain > 0.0)
+    assert not np.allclose(tm.last_gain, 1.0)
+
+
+def test_zero_depth_modulation_signals_are_flat():
+    loop = np.linspace(-0.5, 0.5, 1000, dtype=np.float32)
+    tm = TapeModulator(samplerate=44100, seed=1)
+    tm.process(loop, frames=256, warble_depth=0.0, bloom_depth=0.0, rate_hz=1.0)
+    np.testing.assert_allclose(tm.last_warble_signal, np.zeros(256), atol=1e-9)
+    np.testing.assert_allclose(tm.last_gain, np.ones(256), atol=1e-9)
+
+
 def test_output_stays_within_soft_clip_range():
     loop = np.ones(500, dtype=np.float32)
     tm = TapeModulator(samplerate=44100, seed=1)

@@ -71,3 +71,23 @@ def test_generate_block_writes_to_visual_buffer():
     engine.generate_block(512)
     latest = engine.visual_buffer.read_latest(512)
     assert not np.allclose(latest, np.zeros(512))
+
+
+def test_generate_block_writes_modulation_buffers():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=1.0, sat=1.0, val=1.0, bpm=120)
+    engine.generate_block(512)
+    warble = engine.warble_buffer.read_latest(512)
+    bloom = engine.bloom_buffer.read_latest(512)
+    assert not np.allclose(warble, np.zeros(512))
+    assert not np.allclose(bloom, np.zeros(512))
+
+
+def test_modulation_buffers_flat_with_no_layers():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.generate_block(512)
+    np.testing.assert_allclose(engine.warble_buffer.read_latest(512), np.zeros(512), atol=1e-9)
+    # bloom buffer stores gain - 1.0, so it's zero when dry
+    np.testing.assert_allclose(engine.bloom_buffer.read_latest(512), np.zeros(512), atol=1e-9)

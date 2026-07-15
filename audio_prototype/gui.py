@@ -1,13 +1,17 @@
 import colorsys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from modulation import MAX_BLOOM_DEPTH, MAX_WARBLE_DEPTH, clamp
+
 WAVEFORM_WINDOW_SAMPLES = 4096
 REFRESH_MS = 50
+BPM_MIN = 20.0
+BPM_MAX = 300.0
 
 
 class RedPoleGUI:
@@ -17,10 +21,10 @@ class RedPoleGUI:
         self.root.title("RedPole Audio Prototype")
         self._layer_rows = {}
 
-        self.hue_var = tk.DoubleVar(value=0.5)
+        self.hue_var = tk.DoubleVar(value=0.0)
         self.sat_var = tk.DoubleVar(value=0.7)
         self.val_var = tk.DoubleVar(value=0.7)
-        self.bpm_var = tk.DoubleVar(value=70.0)
+        self.bpm_var = tk.StringVar(value="70")
 
         self._build_controls()
         self._build_layer_list()
@@ -33,51 +37,65 @@ class RedPoleGUI:
         frame.grid(row=0, column=0, sticky="new", padx=8, pady=8)
 
         ttk.Button(frame, text="Load Loop...", command=self._on_load_loop).grid(
-            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8)
+            row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8)
         )
 
-        ttk.Label(frame, text="Hue").grid(row=1, column=0, sticky="w")
+        ttk.Button(frame, text="Pick Color...", command=self._on_pick_color).grid(
+            row=1, column=0, columnspan=2, sticky="ew", pady=(0, 4)
+        )
+
+        ttk.Label(frame, text="Hue").grid(row=2, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.hue_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=1, column=1, sticky="ew")
+        ).grid(row=2, column=1, sticky="ew")
 
-        ttk.Label(frame, text="Saturation").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text="Saturation").grid(row=3, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.sat_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=2, column=1, sticky="ew")
+        ).grid(row=3, column=1, sticky="ew")
 
-        ttk.Label(frame, text="Value").grid(row=3, column=0, sticky="w")
+        ttk.Label(frame, text="Value").grid(row=4, column=0, sticky="w")
         ttk.Scale(
             frame, from_=0.0, to=1.0, variable=self.val_var,
             command=lambda _: self._update_swatch(),
-        ).grid(row=3, column=1, sticky="ew")
+        ).grid(row=4, column=1, sticky="ew")
 
-        ttk.Label(frame, text="BPM").grid(row=4, column=0, sticky="w")
-        ttk.Scale(frame, from_=40.0, to=180.0, variable=self.bpm_var).grid(
-            row=4, column=1, sticky="ew"
+        ttk.Label(frame, text="BPM").grid(row=5, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.bpm_var, width=8).grid(
+            row=5, column=1, sticky="w"
         )
 
         self.swatch = tk.Canvas(frame, width=40, height=40, highlightthickness=1)
-        self.swatch.grid(row=1, column=2, rowspan=3, padx=8)
+        self.swatch.grid(row=1, column=2, rowspan=4, padx=8)
         self._update_swatch()
 
         ttk.Button(frame, text="Send", command=self._on_send).grid(
-            row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0)
+            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0)
         )
 
-    def _hue_to_rgb_hex(self, hue_norm):
-        # Hue slider is normalized 0..1 across a red-only span (-10deg..+10deg
-        # through 0deg), matching what the real finger-scan sensor can return.
-        hue_degrees = (-10.0 + hue_norm * 20.0) % 360.0
+    def _current_color_hex(self):
         r, g, b = colorsys.hsv_to_rgb(
-            hue_degrees / 360.0, self.sat_var.get(), self.val_var.get()
+            self.hue_var.get(), self.sat_var.get(), self.val_var.get()
         )
         return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
 
     def _update_swatch(self):
-        self.swatch.configure(bg=self._hue_to_rgb_hex(self.hue_var.get()))
+        self.swatch.configure(bg=self._current_color_hex())
+
+    def _on_pick_color(self):
+        result = colorchooser.askcolor(
+            color=self._current_color_hex(), title="Pick scan color"
+        )
+        if result is None or result[0] is None:
+            return
+        r, g, b = (c / 255.0 for c in result[0])
+        h, s, v = colorsys.rgb_to_hsv(r, g, b)
+        self.hue_var.set(h)
+        self.sat_var.set(s)
+        self.val_var.set(v)
+        self._update_swatch()
 
     def _build_layer_list(self):
         frame = ttk.LabelFrame(self.root, text="Active Layers")
@@ -90,11 +108,27 @@ class RedPoleGUI:
         self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        fig = Figure(figsize=(5, 3))
+        fig = Figure(figsize=(6, 3.5))
         self.ax = fig.add_subplot(111)
-        (self.line,) = self.ax.plot(np.zeros(WAVEFORM_WINDOW_SAMPLES))
+        zeros = np.zeros(WAVEFORM_WINDOW_SAMPLES)
+        # Faint background traces: the modulation control signals, each
+        # normalized to +/-1 at their global maximum depth so their scale
+        # is comparable block to block.
+        (self.warble_line,) = self.ax.plot(
+            zeros, color="tab:orange", alpha=0.35, linewidth=1.0,
+            label="warble (pitch mod)",
+        )
+        (self.bloom_line,) = self.ax.plot(
+            zeros, color="tab:green", alpha=0.35, linewidth=1.0,
+            label="bloom (amp mod)",
+        )
+        # Foreground trace: the audible post-modulation output.
+        (self.line,) = self.ax.plot(
+            zeros, color="tab:blue", linewidth=1.2, label="output"
+        )
         self.ax.set_ylim(-1.05, 1.05)
         self.ax.set_xticks([])
+        self.ax.legend(loc="upper right", fontsize=7, framealpha=0.6)
 
         self.canvas = FigureCanvasTkAgg(fig, master=frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -121,18 +155,34 @@ class RedPoleGUI:
         except Exception as exc:
             messagebox.showerror("Failed to load audio", str(exc))
 
+    def _read_bpm(self):
+        try:
+            bpm = float(self.bpm_var.get())
+        except ValueError:
+            messagebox.showerror(
+                "Invalid BPM", f"BPM must be a number (got {self.bpm_var.get()!r})"
+            )
+            return None
+        return clamp(bpm, BPM_MIN, BPM_MAX)
+
     def _on_send(self):
+        bpm = self._read_bpm()
+        if bpm is None:
+            return
+        color_hex = self._current_color_hex()
         layer_id = self.engine.registry.add(
             hue=self.hue_var.get(),
             sat=self.sat_var.get(),
             val=self.val_var.get(),
-            bpm=self.bpm_var.get(),
+            bpm=bpm,
         )
-        self._add_layer_row(layer_id, self.bpm_var.get())
+        self._add_layer_row(layer_id, bpm, color_hex)
 
-    def _add_layer_row(self, layer_id, bpm):
+    def _add_layer_row(self, layer_id, bpm, color_hex):
         row = ttk.Frame(self.layer_list_frame)
         row.pack(fill="x", pady=2)
+        icon = tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=color_hex)
+        icon.pack(side="left", padx=(0, 6))
         ttk.Label(row, text=f"Layer {layer_id} (BPM {bpm:.0f})").pack(
             side="left", padx=(0, 8)
         )
@@ -152,5 +202,9 @@ class RedPoleGUI:
 
     def _refresh_waveform(self):
         data = self.engine.visual_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
+        warble = self.engine.warble_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
+        bloom = self.engine.bloom_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         self.line.set_ydata(data)
+        self.warble_line.set_ydata(warble / MAX_WARBLE_DEPTH)
+        self.bloom_line.set_ydata(bloom / MAX_BLOOM_DEPTH)
         self.canvas.draw_idle()
