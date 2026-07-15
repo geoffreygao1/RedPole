@@ -40,9 +40,73 @@ def analyze_loop(loop_array, samplerate, n_partials=N_PARTIALS,
 
 
 class SpectralProcessor:
-    """Per-layer oscillator-bank resynthesis; implemented in the next task."""
+    """Per-layer oscillator-bank resynthesis of the precomputed analysis.
+
+    Each active layer is an independent voice scanning the spectral movie:
+    hue -> pitch shift (+/-7 st, red centered), bpm -> scan speed,
+    sat -> blur (frame smoothing), val -> voice level.
+    """
+
+    VOICE_LEVEL = 0.3
 
     def __init__(self, samplerate, seed=None):
         self.samplerate = samplerate
         self.analysis = None
         self._voices = {}
+
+    def set_analysis(self, analysis):
+        self.analysis = analysis
+        self._voices = {}
+
+    def process(self, loop_array, frames, layers):
+        out = np.zeros(frames)
+        if self.analysis is None or not layers:
+            self._voices = {}
+            return out.astype(np.float32)
+
+        freqs_movie = self.analysis["freqs"]
+        amps_movie = self.analysis["amps"]
+        n_frames = freqs_movie.shape[0]
+        n_partials = freqs_movie.shape[1]
+        t = np.arange(frames) / self.samplerate
+
+        active = set()
+        for layer in layers:
+            vid = layer["id"]
+            active.add(vid)
+            voice = self._voices.get(vid)
+            if voice is None:
+                voice = {
+                    "phases": np.zeros(n_partials),
+                    "scan": 0.0,
+                    "freqs": freqs_movie[0].copy(),
+                    "amps": amps_movie[0].copy(),
+                }
+                self._voices[vid] = voice
+
+            hue = layer["hue"]
+            semitones = 14.0 * (hue if hue <= 0.5 else hue - 1.0)
+            shift = 2.0 ** (semitones / 12.0)
+            scan_rate = (layer["bpm"] / 120.0) * self.analysis["frame_rate"]
+            # sat -> blur: more saturation = slower tracking = more smear
+            blur = 0.5 + 0.45 * layer["sat"]
+            level = self.VOICE_LEVEL * layer["val"]
+
+            frame_idx = int(voice["scan"]) % n_frames
+            voice["freqs"] = blur * voice["freqs"] + (1.0 - blur) * freqs_movie[frame_idx]
+            voice["amps"] = blur * voice["amps"] + (1.0 - blur) * amps_movie[frame_idx]
+            voice["scan"] = (voice["scan"] + scan_rate * frames / self.samplerate) % n_frames
+
+            omega = 2.0 * np.pi * voice["freqs"] * shift  # rad/s per partial
+            out += level * np.sum(
+                voice["amps"][:, None]
+                * np.sin(voice["phases"][:, None] + omega[:, None] * t[None, :]),
+                axis=0,
+            )
+            voice["phases"] = (voice["phases"] + omega * frames / self.samplerate) % (
+                2.0 * np.pi
+            )
+
+        self._voices = {k: v for k, v in self._voices.items() if k in active}
+        out /= max(1.0, np.sqrt(len(layers)))
+        return out.astype(np.float32)
