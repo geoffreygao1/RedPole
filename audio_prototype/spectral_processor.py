@@ -1,8 +1,40 @@
 import numpy as np
 
+from modulation import clamp, hue_to_bipolar
+
 N_PARTIALS = 24
 FFT_SIZE = 4096
 HOP_SIZE = 1024
+PITCH_SPAN_SEMITONES = 7.0
+LIVE_FEEDBACK_GAIN = 0.85
+
+
+def _extract_partials(mag, bin_freqs, n_partials):
+    """Pick the strongest local-maxima peaks from a magnitude spectrum."""
+    freqs = np.zeros(n_partials)
+    amps = np.zeros(n_partials)
+    peaks = np.where((mag[1:-1] > mag[:-2]) & (mag[1:-1] > mag[2:]))[0] + 1
+    if len(peaks) == 0:
+        return freqs, amps
+    top = peaks[np.argsort(mag[peaks])[::-1][:n_partials]]
+    freqs[:len(top)] = bin_freqs[top]
+    amps[:len(top)] = mag[top]
+    return freqs, amps
+
+
+def analyze_frame(window, samplerate, n_partials=N_PARTIALS):
+    """Single-frame partial extraction for live-output analysis.
+
+    Amps are normalized to the frame's own max (silent window -> zeros).
+    """
+    window = np.asarray(window, dtype=np.float64)
+    mag = np.abs(np.fft.rfft(window * np.hanning(len(window))))
+    bin_freqs = np.fft.rfftfreq(len(window), 1.0 / samplerate)
+    freqs, amps = _extract_partials(mag, bin_freqs, n_partials)
+    peak = amps.max()
+    if peak > 0:
+        amps /= peak
+    return freqs, amps
 
 
 def analyze_loop(loop_array, samplerate, n_partials=N_PARTIALS,
@@ -25,13 +57,7 @@ def analyze_loop(loop_array, samplerate, n_partials=N_PARTIALS,
     amps = np.zeros((len(starts), n_partials))
     for i, s in enumerate(starts):
         mag = np.abs(np.fft.rfft(loop_array[s:s + fft_size] * window))
-        # local-maxima peak picking, strongest first
-        peaks = np.where((mag[1:-1] > mag[:-2]) & (mag[1:-1] > mag[2:]))[0] + 1
-        if len(peaks) == 0:
-            continue
-        top = peaks[np.argsort(mag[peaks])[::-1][:n_partials]]
-        freqs[i, :len(top)] = bin_freqs[top]
-        amps[i, :len(top)] = mag[top]
+        freqs[i], amps[i] = _extract_partials(mag, bin_freqs, n_partials)
 
     peak = amps.max()
     if peak > 0:
@@ -40,14 +66,17 @@ def analyze_loop(loop_array, samplerate, n_partials=N_PARTIALS,
 
 
 class SpectralProcessor:
-    """Per-layer oscillator-bank resynthesis of the precomputed analysis.
+    """Per-layer oscillator-bank resynthesis.
 
-    Each active layer is an independent voice scanning the spectral movie:
-    hue -> pitch shift (+/-7 st, red centered), bpm -> scan speed,
-    sat -> blur (frame smoothing), val -> voice level.
+    Each active layer is an independent voice. In precomputed mode the
+    voice scans the analysis movie (bpm -> scan speed). When a live_frame
+    is supplied (realtime output analysis), the voice smooths toward that
+    frame instead -- bpm sets tracking speed, and the feedback gain keeps
+    self-resynthesis from running away. Either way: hue -> pitch shift
+    (+/-7 st across the finger gamut), sat -> blur, val -> voice level.
     """
 
-    VOICE_LEVEL = 0.3
+    VOICE_LEVEL = 0.6
 
     def __init__(self, samplerate, seed=None):
         self.samplerate = samplerate
@@ -58,7 +87,7 @@ class SpectralProcessor:
         self.analysis = analysis
         self._voices = {}
 
-    def process(self, loop_array, frames, layers):
+    def process(self, loop_array, frames, layers, live_frame=None):
         out = np.zeros(frames)
         if self.analysis is None or not layers:
             self._voices = {}
@@ -84,18 +113,30 @@ class SpectralProcessor:
                 }
                 self._voices[vid] = voice
 
-            hue = layer["hue"]
-            semitones = 14.0 * (hue if hue <= 0.5 else hue - 1.0)
+            semitones = PITCH_SPAN_SEMITONES * hue_to_bipolar(layer["hue"])
             shift = 2.0 ** (semitones / 12.0)
-            scan_rate = (layer["bpm"] / 120.0) * self.analysis["frame_rate"]
-            # sat -> blur: more saturation = slower tracking = more smear
-            blur = 0.5 + 0.45 * layer["sat"]
             level = self.VOICE_LEVEL * layer["val"]
 
-            frame_idx = int(voice["scan"]) % n_frames
-            voice["freqs"] = blur * voice["freqs"] + (1.0 - blur) * freqs_movie[frame_idx]
-            voice["amps"] = blur * voice["amps"] + (1.0 - blur) * amps_movie[frame_idx]
-            voice["scan"] = (voice["scan"] + scan_rate * frames / self.samplerate) % n_frames
+            if live_frame is not None:
+                target_freqs, target_amps = live_frame
+                target_amps = target_amps * LIVE_FEEDBACK_GAIN
+                # bpm -> tracking speed (fast pulse = tight tracking),
+                # sat adds smear on top
+                alpha = clamp(0.97 - 0.5 * (layer["bpm"] / 300.0), 0.3, 0.97)
+                alpha = clamp(alpha + 0.02 + 0.2 * layer["sat"], 0.0, 0.985)
+            else:
+                frame_idx = int(voice["scan"]) % n_frames
+                target_freqs = freqs_movie[frame_idx]
+                target_amps = amps_movie[frame_idx]
+                scan_rate = (layer["bpm"] / 120.0) * self.analysis["frame_rate"]
+                voice["scan"] = (
+                    voice["scan"] + scan_rate * frames / self.samplerate
+                ) % n_frames
+                # sat -> blur: more saturation = slower tracking = more smear
+                alpha = 0.5 + 0.45 * layer["sat"]
+
+            voice["freqs"] = alpha * voice["freqs"] + (1.0 - alpha) * target_freqs
+            voice["amps"] = alpha * voice["amps"] + (1.0 - alpha) * target_amps
 
             omega = 2.0 * np.pi * voice["freqs"] * shift  # rad/s per partial
             out += level * np.sum(

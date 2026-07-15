@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from spectral_processor import N_PARTIALS, SpectralProcessor, analyze_loop
+from spectral_processor import (
+    N_PARTIALS,
+    SpectralProcessor,
+    analyze_frame,
+    analyze_loop,
+)
 
 SR = 44100
 
@@ -82,11 +87,43 @@ def test_hue_shifts_pitch_up():
     loop = _tone(440.0)
     proc = SpectralProcessor(SR)
     proc.set_analysis(analyze_loop(loop, SR))
-    layer = _layer(1, hue=0.25)  # +3.5 semitones
+    layer = _layer(1, hue=0.03)  # half the gamut = +3.5 semitones
     for _ in range(20):
         out = proc.process(loop, 4096, [layer])
     expected = 440.0 * 2 ** (3.5 / 12)
     assert _dominant_freq(out) == pytest.approx(expected, abs=15.0)
+
+
+def test_analyze_frame_finds_tone():
+    window = _tone(440.0, seconds=4096 / SR)[:4096]
+    freqs, amps = analyze_frame(window, SR)
+    assert freqs.shape == (N_PARTIALS,)
+    assert amps.shape == (N_PARTIALS,)
+    strongest = freqs[np.argmax(amps)]
+    assert strongest == pytest.approx(440.0, abs=SR / 4096 * 1.5)
+    assert amps.max() == pytest.approx(1.0)
+
+
+def test_analyze_frame_silent_window_is_flat():
+    freqs, amps = analyze_frame(np.zeros(4096), SR)
+    assert not np.any(np.isnan(freqs))
+    assert not np.any(np.isnan(amps))
+    np.testing.assert_allclose(amps, np.zeros(N_PARTIALS))
+
+
+def test_live_frame_tracks_external_tone():
+    loop = _tone(440.0)
+    proc = SpectralProcessor(SR)
+    proc.set_analysis(analyze_loop(loop, SR))
+    # live frame says the output currently contains a 660 Hz partial
+    live_freqs = np.zeros(N_PARTIALS)
+    live_amps = np.zeros(N_PARTIALS)
+    live_freqs[0] = 660.0
+    live_amps[0] = 1.0
+    layer = _layer(1, hue=0.0, sat=0.0, bpm=300.0)  # fast tracking, no blur
+    for _ in range(30):
+        out = proc.process(loop, 4096, [layer], live_frame=(live_freqs, live_amps))
+    assert _dominant_freq(out) == pytest.approx(660.0, abs=15.0)
 
 
 def test_stale_voices_are_dropped():
