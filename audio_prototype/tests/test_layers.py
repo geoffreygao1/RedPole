@@ -1,5 +1,7 @@
 import threading
 
+import pytest
+
 from layers import LayerRegistry
 
 
@@ -15,7 +17,22 @@ def test_snapshot_reflects_added_layers():
     layer_id = reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70)
     snap = reg.snapshot()
     assert len(snap) == 1
-    assert snap[0] == {"id": layer_id, "hue": 0.1, "sat": 0.5, "val": 0.5, "bpm": 70}
+    assert snap[0] == {
+        "id": layer_id, "hue": 0.1, "sat": 0.5, "val": 0.5, "bpm": 70,
+        "engine": "tape",
+    }
+
+
+def test_add_with_engine_assignment():
+    reg = LayerRegistry()
+    reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="granular")
+    assert reg.snapshot()[0]["engine"] == "granular"
+
+
+def test_add_rejects_unknown_engine():
+    reg = LayerRegistry()
+    with pytest.raises(ValueError):
+        reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="reverb")
 
 
 def test_remove_deletes_only_that_layer():

@@ -1,5 +1,7 @@
 import threading
 
+ENGINES = ("tape", "spectral", "granular")
+
 
 class LayerRegistry:
     """Thread-safe registry of active 'sends' (color+BPM layers).
@@ -14,12 +16,15 @@ class LayerRegistry:
         self._layers = {}
         self._next_id = 1
 
-    def add(self, hue, sat, val, bpm):
+    def add(self, hue, sat, val, bpm, engine="tape"):
+        if engine not in ENGINES:
+            raise ValueError(f"Unknown engine {engine!r}; expected one of {ENGINES}")
         with self._lock:
             layer_id = self._next_id
             self._next_id += 1
             self._layers[layer_id] = {
-                "id": layer_id, "hue": hue, "sat": sat, "val": val, "bpm": bpm
+                "id": layer_id, "hue": hue, "sat": sat, "val": val, "bpm": bpm,
+                "engine": engine,
             }
             return layer_id
 
