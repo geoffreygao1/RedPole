@@ -55,18 +55,54 @@ class _Allpass:
         return out
 
 
+class OnePoleLowpass:
+    """y[n] = y[n-1] + a * (x[n] - y[n-1]); colors the reverb tail."""
+
+    def __init__(self, samplerate, cutoff_hz):
+        self.samplerate = samplerate
+        self._state = 0.0
+        self.set_cutoff(cutoff_hz)
+
+    def set_cutoff(self, cutoff_hz):
+        self.cutoff_hz = cutoff_hz
+        self._alpha = 1.0 - np.exp(-2.0 * np.pi * cutoff_hz / self.samplerate)
+
+    def process(self, x):
+        out = np.empty(len(x))
+        state = self._state
+        alpha = self._alpha
+        for i in range(len(x)):
+            state += alpha * (x[i] - state)
+            out[i] = state
+        self._state = state
+        return out
+
+
+DEFAULT_CUTOFF = 7800.0
+
+
 class SchroederReverb:
     """Classic Schroeder reverb: 4 parallel feedback combs into 2 series
-    allpasses. Output is 100% wet; the caller owns the dry/wet mix."""
+    allpasses, then a one-pole lowpass that colors the tail. Output is
+    100% wet; the caller owns the dry/wet mix. Feedback (decay length)
+    and cutoff (tail brightness) are adjustable at block rate."""
 
     def __init__(self, samplerate=44100):
         self.samplerate = samplerate
         self._combs = [_Comb(d, COMB_FEEDBACK) for d in COMB_DELAYS]
         self._allpasses = [_Allpass(d, ALLPASS_GAIN) for d in ALLPASS_DELAYS]
+        self._lowpass = OnePoleLowpass(samplerate, DEFAULT_CUTOFF)
+
+    def set_feedback(self, feedback):
+        for comb in self._combs:
+            comb.feedback = feedback
+
+    def set_cutoff(self, cutoff_hz):
+        self._lowpass.set_cutoff(cutoff_hz)
 
     def process(self, x):
         x = np.asarray(x, dtype=np.float64)
         y = sum(c.process(x) for c in self._combs) / len(self._combs)
         for ap in self._allpasses:
             y = ap.process(y)
-        return y.astype(np.float32)
+        return self._lowpass.process(y).astype(np.float32)

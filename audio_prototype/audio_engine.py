@@ -15,6 +15,19 @@ from tape_modulator import TapeModulator
 VISUALIZER_BUFFER_SECONDS = 2.0
 DUCK_PER_LAYER = 0.12
 DUCK_FLOOR = 0.5
+REVERB_DEFAULT_FEEDBACK = 0.84
+REVERB_DEFAULT_CUTOFF = 7800.0
+REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
+
+
+def bpm_to_reverb_feedback(bpm):
+    """Slow, calm pulses open a long wash; fast pulses tighten the room."""
+    return min(0.92, max(0.72, 0.95 - 0.001 * bpm))
+
+
+def val_to_reverb_cutoff(val):
+    """Dark crimsons give a muffled tail; bright pinks keep it airy."""
+    return 800.0 + 7000.0 * min(1.0, max(0.0, val))
 
 
 class AudioEngine:
@@ -30,6 +43,10 @@ class AudioEngine:
         self.reverb = SchroederReverb(samplerate)
         self.reverb_mix = 0.35
         self.live_analysis = False
+        # 0 = dry loop only, 0.5 = balanced (default), 1 = wet texture only.
+        self.wet_dry = 0.5
+        self._rv_feedback = REVERB_DEFAULT_FEEDBACK
+        self._rv_cutoff = REVERB_DEFAULT_CUTOFF
         buf_len = int(samplerate * VISUALIZER_BUFFER_SECONDS)
         self.visual_buffer = RingBuffer(buf_len)
         # Tape-mode control signals (warble pitch deviation, bloom gain-1):
@@ -149,8 +166,34 @@ class AudioEngine:
 
             n_wet = len(spec_layers) + len(gran_layers)
             duck = max(DUCK_FLOOR, 1.0 / (1.0 + DUCK_PER_LAYER * n_wet))
+
+            # The shared reverb "room" responds to the people in it: their
+            # average pulse sets the decay, their average brightness colors
+            # the tail. No wet layers -> drift back to neutral defaults.
+            wet_layers = spec_layers + gran_layers
+            if wet_layers:
+                target_fb = bpm_to_reverb_feedback(
+                    sum(l["bpm"] for l in wet_layers) / n_wet
+                )
+                target_cut = val_to_reverb_cutoff(
+                    sum(l["val"] for l in wet_layers) / n_wet
+                )
+            else:
+                target_fb = REVERB_DEFAULT_FEEDBACK
+                target_cut = REVERB_DEFAULT_CUTOFF
+            self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
+            self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
+            self.reverb.set_feedback(self._rv_feedback)
+            self.reverb.set_cutoff(self._rv_cutoff)
+
             wet = wet_raw + self.reverb_mix * self.reverb.process(wet_raw)
-            block = soft_clip(duck * base + wet).astype(np.float32)
+            # Wet/dry balance: 0 = dry only, 0.5 = both full, 1 = wet only.
+            mix = self.wet_dry
+            dry_gain = min(1.0, 2.0 * (1.0 - mix))
+            wet_gain = min(1.0, 2.0 * mix)
+            block = soft_clip(dry_gain * duck * base + wet_gain * wet).astype(
+                np.float32
+            )
             self.warble_buffer.write(zeros)
             self.bloom_buffer.write(zeros)
             self.wet_buffer.write(wet)

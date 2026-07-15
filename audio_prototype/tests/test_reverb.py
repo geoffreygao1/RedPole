@@ -1,8 +1,52 @@
 import numpy as np
 
-from reverb import SchroederReverb
+from reverb import OnePoleLowpass, SchroederReverb
 
 SR = 44100
+
+
+def _tone(freq, n=8192, sr=SR):
+    return np.sin(2 * np.pi * freq * np.arange(n) / sr)
+
+
+def test_lowpass_attenuates_highs_more_than_lows():
+    lp_low = OnePoleLowpass(SR, cutoff_hz=1000.0)
+    lp_high = OnePoleLowpass(SR, cutoff_hz=1000.0)
+    low_out = lp_low.process(_tone(100.0))
+    high_out = lp_high.process(_tone(8000.0))
+    # skip the settle-in region
+    assert np.abs(high_out[4000:]).max() < np.abs(low_out[4000:]).max() * 0.5
+
+
+def test_lowpass_cutoff_is_adjustable():
+    lp = OnePoleLowpass(SR, cutoff_hz=500.0)
+    dark = lp.process(_tone(4000.0))
+    lp2 = OnePoleLowpass(SR, cutoff_hz=8000.0)
+    bright = lp2.process(_tone(4000.0))
+    assert np.abs(dark[4000:]).max() < np.abs(bright[4000:]).max()
+
+
+def test_reverb_feedback_and_cutoff_setters():
+    rv = SchroederReverb(SR)
+    rv.set_feedback(0.9)
+    assert all(c.feedback == 0.9 for c in rv._combs)
+    rv.set_cutoff(1200.0)
+    assert rv._lowpass.cutoff_hz == 1200.0
+
+
+def test_lower_feedback_decays_faster():
+    def tail_energy(feedback):
+        rv = SchroederReverb(SR)
+        rv.set_feedback(feedback)
+        impulse = np.zeros(1024, dtype=np.float32)
+        impulse[0] = 1.0
+        rv.process(impulse)
+        silent = np.zeros(1024, dtype=np.float32)
+        return sum(
+            float(np.sum(rv.process(silent) ** 2)) for _ in range(40)
+        )
+
+    assert tail_energy(0.72) < tail_energy(0.92) * 0.5
 
 
 def test_silence_in_silence_out_from_clean_state():

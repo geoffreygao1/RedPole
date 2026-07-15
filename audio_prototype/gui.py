@@ -47,6 +47,7 @@ class RedPoleGUI:
         self.engine_var = tk.StringVar(value="spectral")
         self.live_var = tk.BooleanVar(value=False)
         self.reverb_var = tk.DoubleVar(value=self.engine.reverb_mix)
+        self.wet_dry_var = tk.DoubleVar(value=self.engine.wet_dry)
 
         self._build_controls()
         self._build_layer_list()
@@ -119,8 +120,16 @@ class RedPoleGUI:
             ),
         ).grid(row=7, column=1, columnspan=2, sticky="ew")
 
+        ttk.Label(frame, text="Wet/Dry").grid(row=8, column=0, sticky="w")
+        ttk.Scale(
+            frame, from_=0.0, to=1.0, variable=self.wet_dry_var,
+            command=lambda _v: setattr(
+                self.engine, "wet_dry", self.wet_dry_var.get()
+            ),
+        ).grid(row=8, column=1, columnspan=2, sticky="ew")
+
         ttk.Button(frame, text="Send", command=self._on_send).grid(
-            row=8, column=0, columnspan=3, sticky="ew", pady=(8, 0)
+            row=9, column=0, columnspan=3, sticky="ew", pady=(8, 0)
         )
 
         # initialize marker/swatch at gamut center, mid brightness

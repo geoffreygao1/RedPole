@@ -225,6 +225,65 @@ def test_pause_resume_state_without_stream():
     assert engine.paused is False
 
 
+def test_wet_dry_default_is_balanced():
+    engine = AudioEngine(seed=1)
+    assert engine.wet_dry == pytest.approx(0.5)
+
+
+def test_wet_dry_zero_mutes_wet():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("granular")
+    engine.wet_dry = 0.0
+    engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=180, engine="granular")
+    for _ in range(30):
+        block = engine.generate_block(1024)
+    # wet is fully muted, so output is just the ducked dry loop
+    start = engine._dry_pos - 1024
+    dry = engine.loop_array[
+        (start + np.arange(1024)) % len(engine.loop_array)
+    ]
+    duck = max(0.5, 1.0 / (1.0 + 0.12 * 1))
+    np.testing.assert_allclose(block, dry * duck, atol=1e-5)
+
+
+def test_wet_dry_one_mutes_dry():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("granular")
+    engine.wet_dry = 1.0
+    # silent wet layer (val=0, bpm=1): with dry muted too, output ~ zero
+    engine.registry.add(hue=0.0, sat=0.5, val=0.0, bpm=1.0, engine="granular")
+    block = engine.generate_block(512)
+    np.testing.assert_allclose(block, np.zeros(512), atol=1e-5)
+
+
+def test_reverb_character_follows_layer_bpm():
+    def settled_feedback(bpm):
+        engine = AudioEngine(seed=1)
+        engine.load_loop(str(SAMPLE_LOOP))
+        engine.set_mode("spectral")
+        engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=bpm, engine="spectral")
+        for _ in range(60):
+            engine.generate_block(1024)
+        return engine.reverb._combs[0].feedback
+
+    assert settled_feedback(40) > settled_feedback(180)
+
+
+def test_reverb_character_follows_layer_brightness():
+    def settled_cutoff(val):
+        engine = AudioEngine(seed=1)
+        engine.load_loop(str(SAMPLE_LOOP))
+        engine.set_mode("spectral")
+        engine.registry.add(hue=0.0, sat=0.5, val=val, bpm=120, engine="spectral")
+        for _ in range(60):
+            engine.generate_block(1024)
+        return engine.reverb._lowpass.cutoff_hz
+
+    assert settled_cutoff(0.3) < settled_cutoff(1.0)
+
+
 def test_live_analysis_flag_changes_spectral_behavior():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
