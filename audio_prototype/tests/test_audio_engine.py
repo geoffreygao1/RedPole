@@ -144,3 +144,105 @@ def test_tape_mode_writes_zero_wet_buffer():
     engine.registry.add(hue=1.0, sat=1.0, val=1.0, bpm=120)
     engine.generate_block(512)
     np.testing.assert_allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
+
+
+def test_mixed_mode_in_modes():
+    assert "mixed" in AudioEngine.MODES
+
+
+def test_mixed_mode_zero_layers_is_dry():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("mixed")
+    block = engine.generate_block(512)
+    expected = engine.loop_array[np.arange(512) % len(engine.loop_array)]
+    np.testing.assert_allclose(block, expected, atol=1e-6)
+
+
+def test_mixed_mode_routes_layers_by_engine():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("mixed")
+    engine.registry.add(hue=0.03, sat=0.5, val=1.0, bpm=120, engine="spectral")
+    engine.registry.add(hue=0.03, sat=0.5, val=1.0, bpm=180, engine="granular")
+    for _ in range(30):
+        engine.generate_block(1024)
+    # both processors should hold exactly one voice each
+    assert len(engine.spectral._voices) == 1
+    assert len(engine.granular._voices) == 1
+    wet = engine.wet_buffer.read_latest(1024 * 20)
+    assert not np.allclose(wet, np.zeros_like(wet))
+
+
+def test_mixed_mode_tape_layer_modulates_base():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("mixed")
+    engine.registry.add(hue=0.06, sat=1.0, val=1.0, bpm=120, engine="tape")
+    block = engine.generate_block(2048)
+    dry = engine.loop_array[np.arange(2048) % len(engine.loop_array)]
+    assert not np.allclose(block, dry)
+    # no spectral/granular layers -> wet stays silent
+    np.testing.assert_allclose(engine.wet_buffer.read_latest(2048), np.zeros(2048))
+
+
+def test_dry_is_ducked_with_wet_layers():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("granular")
+    for _ in range(4):
+        engine.registry.add(hue=0.0, sat=0.5, val=0.0, bpm=1.0, engine="granular")
+    # val=0 silences grains; bpm=1 nearly never pulses -> block is just
+    # the ducked dry signal
+    block = engine.generate_block(512)
+    dry = engine.loop_array[np.arange(512) % len(engine.loop_array)]
+    expected_duck = max(0.5, 1.0 / (1.0 + 0.12 * 4))
+    np.testing.assert_allclose(block, dry * expected_duck, atol=1e-3)
+
+
+def test_reverb_adds_tail_to_wet():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("granular")
+    engine.reverb_mix = 1.0
+    layer_id = engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=180, engine="granular")
+    for _ in range(40):
+        engine.generate_block(1024)
+    engine.registry.remove(layer_id)
+    # with the layer gone the raw wet is silent, but the reverb tail rings on
+    tail = np.concatenate([engine.generate_block(1024) for _ in range(3)])
+    dry = None  # tail block includes dry loop; compare against wet buffer instead
+    wet_tail = engine.wet_buffer.read_latest(1024 * 3)
+    assert not np.allclose(wet_tail, np.zeros_like(wet_tail))
+
+
+def test_pause_resume_state_without_stream():
+    engine = AudioEngine(seed=1)
+    assert engine.paused is False
+    engine.pause()
+    assert engine.paused is True
+    engine.resume()
+    assert engine.paused is False
+
+
+def test_live_analysis_flag_changes_spectral_behavior():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("spectral")
+    engine.registry.add(hue=0.0, sat=0.0, val=1.0, bpm=120, engine="spectral")
+
+    engine.live_analysis = False
+    for _ in range(10):
+        engine.generate_block(1024)
+    precomputed = engine.generate_block(4096)
+
+    engine2 = AudioEngine(seed=1)
+    engine2.load_loop(str(SAMPLE_LOOP))
+    engine2.set_mode("spectral")
+    engine2.registry.add(hue=0.0, sat=0.0, val=1.0, bpm=120, engine="spectral")
+    engine2.live_analysis = True
+    for _ in range(10):
+        engine2.generate_block(1024)
+    live = engine2.generate_block(4096)
+
+    assert not np.allclose(precomputed, live)
