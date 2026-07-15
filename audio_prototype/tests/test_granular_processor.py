@@ -59,6 +59,22 @@ def test_stale_voices_are_dropped():
     assert set(proc._voices.keys()) == {2}
 
 
+def test_hue_uses_finger_gamut():
+    loop = _tone(220.0)
+
+    def render(hue):
+        proc = GranularProcessor(SR, seed=1)
+        return np.concatenate(
+            [proc.process(loop, 1024, [_layer(1, hue=hue)]) for _ in range(30)]
+        )
+
+    center = render(0.0)       # red = no transposition
+    edge = render(0.06)        # gamut edge = +12 st
+    clamped = render(0.4)      # beyond gamut clamps to the same +12 st
+    assert not np.allclose(center, edge)
+    np.testing.assert_allclose(edge, clamped)
+
+
 def test_output_length_and_state_persist():
     proc = GranularProcessor(SR, seed=1)
     loop = _tone(220.0)

@@ -1,5 +1,8 @@
 import numpy as np
 
+from modulation import hue_to_bipolar
+
+PITCH_SPAN_SEMITONES = 12.0
 GRAIN_MIN_SECONDS = 0.06
 GRAIN_MAX_SECONDS = 0.25
 BURST_GRAINS = 4
@@ -53,8 +56,7 @@ class GranularProcessor:
                     [voice["buffer"], np.zeros(min_len - len(voice["buffer"]))]
                 )
 
-            hue = layer["hue"]
-            semitones = 24.0 * (hue if hue <= 0.5 else hue - 1.0)
+            semitones = PITCH_SPAN_SEMITONES * hue_to_bipolar(layer["hue"])
             ratio = 2.0 ** (semitones / 12.0)
             grain_len = int(
                 (GRAIN_MIN_SECONDS
