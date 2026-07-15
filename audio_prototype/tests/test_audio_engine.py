@@ -91,3 +91,56 @@ def test_modulation_buffers_flat_with_no_layers():
     np.testing.assert_allclose(engine.warble_buffer.read_latest(512), np.zeros(512), atol=1e-9)
     # bloom buffer stores gain - 1.0, so it's zero when dry
     np.testing.assert_allclose(engine.bloom_buffer.read_latest(512), np.zeros(512), atol=1e-9)
+
+
+def test_default_mode_is_tape():
+    engine = AudioEngine(seed=1)
+    assert engine.mode == "tape"
+
+
+def test_set_mode_validates():
+    engine = AudioEngine(seed=1)
+    engine.set_mode("spectral")
+    assert engine.mode == "spectral"
+    with pytest.raises(ValueError):
+        engine.set_mode("reverb")
+
+
+def test_spectral_mode_zero_layers_is_dry():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("spectral")
+    block = engine.generate_block(512)
+    expected = engine.loop_array[np.arange(512) % len(engine.loop_array)]
+    np.testing.assert_allclose(block, expected, atol=1e-6)
+
+
+def test_spectral_mode_layer_changes_output_and_wet_buffer():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("spectral")
+    engine.registry.add(hue=0.25, sat=0.5, val=1.0, bpm=120)
+    block = engine.generate_block(2048)
+    dry = engine.loop_array[np.arange(2048) % len(engine.loop_array)]
+    assert not np.allclose(block, dry)
+    wet = engine.wet_buffer.read_latest(2048)
+    assert not np.allclose(wet, np.zeros(2048))
+
+
+def test_granular_mode_layer_changes_output():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("granular")
+    engine.registry.add(hue=0.25, sat=0.5, val=1.0, bpm=180)
+    blocks = [engine.generate_block(1024) for _ in range(30)]
+    total_wet = engine.wet_buffer.read_latest(1024 * 20)
+    assert not np.allclose(total_wet, np.zeros_like(total_wet))
+    assert all(b.shape == (1024,) for b in blocks)
+
+
+def test_tape_mode_writes_zero_wet_buffer():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=1.0, sat=1.0, val=1.0, bpm=120)
+    engine.generate_block(512)
+    np.testing.assert_allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
