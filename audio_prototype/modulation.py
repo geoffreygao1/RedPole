@@ -6,6 +6,7 @@ PER_LAYER_MIN_WARBLE = 0.001
 PER_LAYER_MAX_WARBLE = 0.004
 PER_LAYER_MIN_BLOOM = 0.02
 PER_LAYER_MAX_BLOOM = 0.12
+FINGER_GAMUT_HALF_WIDTH = 0.06
 
 
 def clamp(value, min_v, max_v):
@@ -16,9 +17,21 @@ def bpm_to_hz(bpm):
     return bpm / 60.0
 
 
+def hue_to_bipolar(hue):
+    """Map hue to [-1, +1] across the realistic finger-scan gamut.
+
+    Red (hue 0.0/1.0) is center = 0; +FINGER_GAMUT_HALF_WIDTH toward
+    orange-pink maps to +1, the same distance toward crimson maps to -1.
+    Hues outside the gamut clamp, so the narrow band of real finger reds
+    spans the full modulation range.
+    """
+    d = ((hue + 0.5) % 1.0) - 0.5  # signed hue distance from red
+    return clamp(d / FINGER_GAMUT_HALF_WIDTH, -1.0, 1.0)
+
+
 def hue_to_warble_depth(hue_norm):
-    hue_norm = clamp(hue_norm, 0.0, 1.0)
-    return PER_LAYER_MIN_WARBLE + hue_norm * (PER_LAYER_MAX_WARBLE - PER_LAYER_MIN_WARBLE)
+    strength = abs(hue_to_bipolar(hue_norm))
+    return PER_LAYER_MIN_WARBLE + strength * (PER_LAYER_MAX_WARBLE - PER_LAYER_MIN_WARBLE)
 
 
 def sat_val_to_bloom_depth(sat, val):

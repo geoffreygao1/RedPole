@@ -15,10 +15,24 @@ def test_bpm_to_hz():
     assert mod.bpm_to_hz(120) == pytest.approx(2.0)
 
 
+def test_hue_to_bipolar_center_and_edges():
+    assert mod.hue_to_bipolar(0.0) == pytest.approx(0.0)
+    assert mod.hue_to_bipolar(0.06) == pytest.approx(1.0)
+    assert mod.hue_to_bipolar(0.03) == pytest.approx(0.5)
+    assert mod.hue_to_bipolar(0.94) == pytest.approx(-1.0)
+    assert mod.hue_to_bipolar(0.97) == pytest.approx(-0.5)
+
+
+def test_hue_to_bipolar_clamps_outside_gamut():
+    assert mod.hue_to_bipolar(0.4) == pytest.approx(1.0)
+    assert mod.hue_to_bipolar(0.9) == pytest.approx(-1.0)
+
+
 def test_hue_to_warble_depth_bounds():
     assert mod.hue_to_warble_depth(0.0) == pytest.approx(mod.PER_LAYER_MIN_WARBLE)
-    assert mod.hue_to_warble_depth(1.0) == pytest.approx(mod.PER_LAYER_MAX_WARBLE)
-    mid = mod.hue_to_warble_depth(0.5)
+    assert mod.hue_to_warble_depth(0.06) == pytest.approx(mod.PER_LAYER_MAX_WARBLE)
+    assert mod.hue_to_warble_depth(0.94) == pytest.approx(mod.PER_LAYER_MAX_WARBLE)
+    mid = mod.hue_to_warble_depth(0.03)
     assert mod.PER_LAYER_MIN_WARBLE < mid < mod.PER_LAYER_MAX_WARBLE
 
 
@@ -34,8 +48,8 @@ def test_combine_layers_empty():
 
 def test_combine_layers_sums_depth_and_averages_rate():
     layers = [
-        {"hue": 1.0, "sat": 1.0, "val": 1.0, "bpm": 60.0},
-        {"hue": 1.0, "sat": 1.0, "val": 1.0, "bpm": 120.0},
+        {"hue": 0.06, "sat": 1.0, "val": 1.0, "bpm": 60.0},
+        {"hue": 0.06, "sat": 1.0, "val": 1.0, "bpm": 120.0},
     ]
     combined = mod.combine_layers(layers)
     assert combined["warble_depth"] == pytest.approx(
@@ -48,7 +62,7 @@ def test_combine_layers_sums_depth_and_averages_rate():
 
 
 def test_combine_layers_clamps_depth_with_many_layers():
-    layers = [{"hue": 1.0, "sat": 1.0, "val": 1.0, "bpm": 60.0} for _ in range(20)]
+    layers = [{"hue": 0.06, "sat": 1.0, "val": 1.0, "bpm": 60.0} for _ in range(20)]
     combined = mod.combine_layers(layers)
     assert combined["warble_depth"] == pytest.approx(mod.MAX_WARBLE_DEPTH)
     assert combined["bloom_depth"] == pytest.approx(mod.MAX_BLOOM_DEPTH)
