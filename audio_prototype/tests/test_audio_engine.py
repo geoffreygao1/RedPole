@@ -26,6 +26,18 @@ def test_load_loop_rejects_mismatched_samplerate(tmp_path):
         engine.load_loop(str(bad_path))
 
 
+def test_load_loop_reads_mp3(tmp_path):
+    import soundfile as sf
+
+    mp3_path = tmp_path / "loop.mp3"
+    tone = 0.5 * np.sin(2 * np.pi * 220 * np.arange(44100) / 44100).astype(np.float32)
+    sf.write(str(mp3_path), tone, 44100)
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(mp3_path))
+    assert engine.loop_array is not None
+    assert len(engine.loop_array) > 40000
+
+
 def test_generate_block_requires_loaded_loop():
     engine = AudioEngine(seed=1)
     with pytest.raises(RuntimeError):

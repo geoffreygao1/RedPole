@@ -107,7 +107,13 @@ class RedPoleGUI:
             messagebox.showerror("Failed to start audio", str(exc))
 
     def _on_load_loop(self):
-        path = filedialog.askopenfilename(filetypes=[("WAV files", "*.wav")])
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("Audio files", "*.wav *.mp3"),
+                ("WAV files", "*.wav"),
+                ("MP3 files", "*.mp3"),
+            ]
+        )
         if not path:
             return
         try:
