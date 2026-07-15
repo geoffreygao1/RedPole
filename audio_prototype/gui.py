@@ -45,10 +45,10 @@ class RedPoleGUI:
         self.bpm_var = tk.StringVar(value="70")
         self.engine_var = tk.StringVar(value="spectral")
         self.live_var = tk.BooleanVar(value=False)
-        self.reverb_var = tk.DoubleVar(value=self.engine.reverb_mix)
         self.wet_dry_var = tk.DoubleVar(value=self.engine.wet_dry)
 
         self._build_controls()
+        self._build_audition_controls()
         self._build_layer_list()
         self._build_waveform()
         self._load_initial_loop(default_loop_path)
@@ -97,33 +97,36 @@ class RedPoleGUI:
             values=["tape", "spectral", "granular", "reverb"], width=10,
         ).grid(row=5, column=1, sticky="w", pady=(4, 0))
 
-        ttk.Checkbutton(
-            frame, text="Live analysis (spectral feedback)",
-            variable=self.live_var, command=self._on_live_toggle,
-        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
-
-        ttk.Label(frame, text="Reverb").grid(row=7, column=0, sticky="w")
-        ttk.Scale(
-            frame, from_=0.0, to=1.0, variable=self.reverb_var,
-            command=lambda _v: setattr(
-                self.engine, "reverb_mix", self.reverb_var.get()
-            ),
-        ).grid(row=7, column=1, columnspan=2, sticky="ew")
-
-        ttk.Label(frame, text="Wet/Dry").grid(row=8, column=0, sticky="w")
-        ttk.Scale(
-            frame, from_=0.0, to=1.0, variable=self.wet_dry_var,
-            command=lambda _v: setattr(
-                self.engine, "wet_dry", self.wet_dry_var.get()
-            ),
-        ).grid(row=8, column=1, columnspan=2, sticky="ew")
-
         ttk.Button(frame, text="Send", command=self._on_send).grid(
-            row=9, column=0, columnspan=3, sticky="ew", pady=(8, 0)
+            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0)
         )
 
         # initialize marker/swatch at gamut center, mid brightness
         self._set_pick(PICKER_W // 2, PICKER_H // 2)
+
+    def _build_audition_controls(self):
+        frame = ttk.LabelFrame(self.root, text="Audition")
+        frame.grid(row=2, column=0, sticky="new", padx=8, pady=(0, 8))
+
+        ttk.Checkbutton(
+            frame,
+            text="Live analysis (spectral feedback)",
+            variable=self.live_var,
+            command=self._on_live_toggle,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        ttk.Label(frame, text="Wet/Dry").grid(row=1, column=0, sticky="w")
+        ttk.Scale(
+            frame,
+            from_=0.0,
+            to=1.0,
+            variable=self.wet_dry_var,
+            command=lambda _v: setattr(
+                self.engine, "wet_dry", self.wet_dry_var.get()
+            ),
+        ).grid(row=1, column=1, columnspan=2, sticky="ew")
+
+        frame.columnconfigure(1, weight=1)
 
     def _build_picker_image(self):
         img = tk.PhotoImage(width=PICKER_W, height=PICKER_H)
@@ -175,7 +178,7 @@ class RedPoleGUI:
 
     def _build_layer_list(self):
         frame = ttk.LabelFrame(self.root, text="Active Layers")
-        frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+        frame.grid(row=3, column=0, sticky="nsew", padx=8, pady=8)
 
         canvas = tk.Canvas(frame, height=180, highlightthickness=0)
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
