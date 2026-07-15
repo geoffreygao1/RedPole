@@ -10,8 +10,17 @@ FAMILY_VARIANTS = {
     "multidelay": ("pattern", "warp"),
 }
 EVENT_DENSITY_TARGET = 3.0
+MAX_EVENTS_PER_BLOCK = 3
 EVENT_JITTER = 0.55
 OUTPUT_LEVEL = 0.62
+
+
+def event_cap_for_frames(frames):
+    if frames <= 256:
+        return 1
+    if frames <= 512:
+        return 2
+    return MAX_EVENTS_PER_BLOCK
 
 
 def microcosm_variant(layer):
@@ -120,10 +129,12 @@ class MicrocosmProcessor:
             self._voices = {}
             return np.zeros(frames, dtype=np.float32)
 
-        loop = np.asarray(loop_array, dtype=np.float64)
+        loop = np.asarray(loop_array)
         out = np.zeros(frames, dtype=np.float64)
         active = set()
         density_probability = min(1.0, EVENT_DENSITY_TARGET / max(1, len(layers)))
+        max_events = event_cap_for_frames(frames)
+        events_this_block = 0
 
         for layer in layers:
             family = layer["engine"]
@@ -148,10 +159,24 @@ class MicrocosmProcessor:
                     [voice["buffer"], np.zeros(min_len - len(voice["buffer"]))]
                 )
 
-            controls = microcosm_controls(layer)
+            controls_key = (
+                family,
+                layer["hue"],
+                layer["sat"],
+                layer["val"],
+                layer["bpm"],
+                layer.get("patch_col"),
+            )
+            if voice.get("controls_key") != controls_key:
+                voice["controls"] = microcosm_controls(layer)
+                voice["controls_key"] = controls_key
+            controls = voice["controls"]
             t = voice["until_event"]
             while t < frames:
-                if voice["rng"].random() < density_probability:
+                if (
+                    events_this_block < max_events
+                    and voice["rng"].random() < density_probability
+                ):
                     self._emit_event(
                         voice,
                         loop,
@@ -160,13 +185,14 @@ class MicrocosmProcessor:
                         int(source_pos + t),
                         controls,
                     )
+                    events_this_block += 1
                 t += self._next_interval(voice, controls)
             voice["until_event"] = t - frames
 
-            out += voice["buffer"][:frames]
-            voice["buffer"] = np.concatenate(
-                [voice["buffer"][frames:], np.zeros(frames, dtype=np.float64)]
-            )
+            buffer = voice["buffer"]
+            out += buffer[:frames]
+            buffer[:-frames] = buffer[frames:]
+            buffer[-frames:] = 0.0
 
         self._voices = {k: v for k, v in self._voices.items() if k in active}
         out *= OUTPUT_LEVEL / max(1.0, np.sqrt(len(layers)))
@@ -524,12 +550,10 @@ class MicrocosmProcessor:
         x = np.asarray(segment, dtype=np.float64)
         if len(x) == 0:
             return x
-        alpha = 0.04 + 0.22 * (1.0 - abs(amount))
-        low = np.empty_like(x)
-        state = 0.0
-        for i, sample in enumerate(x):
-            state += alpha * (sample - state)
-            low[i] = state
+        kernel_len = max(4, min(96, int(12 + 84 * (1.0 - abs(amount)))))
+        kernel = np.hanning(kernel_len)
+        kernel /= max(1e-12, float(np.sum(kernel)))
+        low = np.convolve(x, kernel, mode="same")
         high = x - low
         if amount < 0.0:
             return (1.0 + abs(amount) * 0.8) * low

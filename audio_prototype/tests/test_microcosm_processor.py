@@ -4,6 +4,7 @@ import numpy as np
 import modulation as mod
 from microcosm_processor import (
     FAMILY_VARIANTS,
+    MAX_EVENTS_PER_BLOCK,
     MicrocosmProcessor,
     microcosm_controls,
     microcosm_variant,
@@ -305,3 +306,67 @@ def test_many_layers_are_sparse_and_bounded():
     assert active.mean() < 0.78
     assert float(np.sqrt(np.mean(total**2))) < 0.12
     assert np.max(np.abs(total)) < 0.8
+
+
+def test_stacked_layers_cap_event_bursts_per_block():
+    class CountingProcessor(MicrocosmProcessor):
+        def __init__(self):
+            super().__init__(SR, seed=1)
+            self.events = 0
+
+        def _emit_event(self, voice, loop, family, offset, source_pos, controls):
+            self.events += 1
+
+        def _next_interval(self, voice, controls):
+            return 10_000_000
+
+    class AlwaysEmitRng:
+        def random(self):
+            return 0.0
+
+    proc = CountingProcessor()
+    layers = [_layer(i + 1, engine="granules") for i in range(25)]
+    proc._voices = {
+        layer["id"]: {
+            "rng": AlwaysEmitRng(),
+            "buffer": np.zeros(1024, dtype=np.float64),
+            "until_event": 0,
+        }
+        for layer in layers
+    }
+
+    proc.process(_tone(220.0), 1024, layers, source_pos=0)
+
+    assert proc.events == MAX_EVENTS_PER_BLOCK
+
+
+def test_small_blocks_use_stricter_event_burst_cap():
+    class CountingProcessor(MicrocosmProcessor):
+        def __init__(self):
+            super().__init__(SR, seed=1)
+            self.events = 0
+
+        def _emit_event(self, voice, loop, family, offset, source_pos, controls):
+            self.events += 1
+
+        def _next_interval(self, voice, controls):
+            return 10_000_000
+
+    class AlwaysEmitRng:
+        def random(self):
+            return 0.0
+
+    proc = CountingProcessor()
+    layers = [_layer(i + 1, engine="granules") for i in range(25)]
+    proc._voices = {
+        layer["id"]: {
+            "rng": AlwaysEmitRng(),
+            "buffer": np.zeros(256, dtype=np.float64),
+            "until_event": 0,
+        }
+        for layer in layers
+    }
+
+    proc.process(_tone(220.0), 256, layers, source_pos=0)
+
+    assert proc.events == 1

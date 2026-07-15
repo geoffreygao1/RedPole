@@ -103,6 +103,20 @@ def test_generate_block_dry_matches_loop_with_no_layers():
     np.testing.assert_allclose(block, expected, atol=1e-6)
 
 
+def test_no_layer_mixed_mode_skips_reverb_processing():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+
+    def fail_reverb(_x):
+        raise AssertionError("dry no-layer path should not process reverb")
+
+    engine.reverb.process = fail_reverb
+    block = engine.generate_block(512)
+    expected = engine.loop_array[np.arange(512) % len(engine.loop_array)]
+
+    np.testing.assert_allclose(block, expected, atol=1e-6)
+
+
 def test_generate_block_changes_with_active_layer():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
@@ -307,21 +321,20 @@ def test_mixed_mode_tape_layer_modulates_base():
     np.testing.assert_allclose(engine.wet_buffer.read_latest(2048), np.zeros(2048))
 
 
-def test_dry_is_ducked_with_wet_layers():
+def test_dry_is_not_ducked_with_wet_layers_when_dry_only():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     engine.set_mode("granular")
+    engine.wet_dry = 0.0
     for _ in range(4):
         engine.registry.add(hue=0.0, sat=0.5, val=0.0, bpm=1.0, engine="granular")
-    # val=0 silences grains; bpm=1 nearly never pulses -> block is just
-    # the ducked dry signal
+    # val=0 silences grains; dry-only audition should preserve dry level.
     block = engine.generate_block(512)
     dry = engine.loop_array[np.arange(512) % len(engine.loop_array)]
-    expected_duck = max(0.5, 1.0 / (1.0 + 0.12 * 4))
-    np.testing.assert_allclose(block, dry * expected_duck, atol=1e-3)
+    np.testing.assert_allclose(block, dry, atol=1e-6)
 
 
-def test_wet_events_dynamically_duck_dry_source():
+def test_wet_events_do_not_duck_dry_source():
     class FakeMicrocosm:
         def __init__(self, wet):
             self.wet = wet.astype(np.float32)
@@ -344,14 +357,12 @@ def test_wet_events_dynamically_duck_dry_source():
 
     engine._dry_pos = 0
     engine.modulator._read_pos = 0.0
-    engine._wet_duck_state = 0.0
     loud_wet = np.zeros(frames, dtype=np.float32)
     loud_wet[frames // 4:frames // 2] = 0.8
     engine.microcosm = FakeMicrocosm(loud_wet)
-    ducked = engine.generate_block(frames)
+    with_wet_event = engine.generate_block(frames)
 
-    active = slice(frames // 4, frames // 2)
-    assert np.mean(np.abs(ducked[active])) < np.mean(np.abs(quiet[active])) * 0.86
+    np.testing.assert_allclose(with_wet_event, quiet, atol=1e-6)
 
 
 def test_reverb_adds_tail_to_wet():
@@ -420,14 +431,12 @@ def test_wet_dry_zero_mutes_wet():
     engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=180, engine="granular")
     for _ in range(30):
         block = engine.generate_block(1024)
-    # wet is fully muted, so output is just the ducked dry loop
+    # wet is fully muted, so output is just the dry loop
     start = engine._dry_pos - 1024
     dry = engine.loop_array[
         (start + np.arange(1024)) % len(engine.loop_array)
     ]
-    duck = max(0.5, 1.0 / (1.0 + 0.12 * 1))
-    assert np.max(np.abs(block)) <= np.max(np.abs(dry * duck)) + 1e-5
-    assert np.mean(np.abs(block)) < np.mean(np.abs(dry * duck))
+    np.testing.assert_allclose(block, dry, atol=1e-5)
 
 
 def test_wet_dry_one_mutes_dry():

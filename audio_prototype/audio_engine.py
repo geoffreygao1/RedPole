@@ -34,15 +34,10 @@ VISUALIZER_BUFFER_SECONDS = 2.0
 MAX_LOOP_SECONDS = 600.0
 MAX_ANALYSIS_SECONDS = 120.0
 LOAD_CHUNK_FRAMES = 262144
-DUCK_PER_LAYER = 0.12
-DUCK_FLOOR = 0.5
-WET_DUCK_DEPTH = 0.38
-WET_DUCK_FLOOR = 0.55
-WET_DUCK_ATTACK = 0.18
-WET_DUCK_RELEASE = 0.012
 REVERB_DEFAULT_FEEDBACK = 0.84
 REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
+REVERB_TAIL_HOLD_BLOCKS = 220
 
 
 def bpm_to_reverb_feedback(bpm):
@@ -135,16 +130,6 @@ def read_mono_audio(path, max_seconds=None):
     return np.concatenate(chunks).astype(np.float32), file_rate
 
 
-def wet_duck_curve(wet, state=0.0):
-    curve = np.empty(len(wet), dtype=np.float32)
-    env = float(state)
-    for i, sample in enumerate(np.abs(wet)):
-        alpha = WET_DUCK_ATTACK if sample > env else WET_DUCK_RELEASE
-        env += alpha * (float(sample) - env)
-        curve[i] = max(WET_DUCK_FLOOR, 1.0 - WET_DUCK_DEPTH * min(1.0, env))
-    return curve, env
-
-
 class AudioEngine:
     MODES = ("tape", "spectral", "granular", "mixed")
 
@@ -171,7 +156,7 @@ class AudioEngine:
         self.wet_dry = 0.5
         self._rv_feedback = REVERB_DEFAULT_FEEDBACK
         self._rv_cutoff = REVERB_DEFAULT_CUTOFF
-        self._wet_duck_state = 0.0
+        self._reverb_tail_blocks = 0
         buf_len = int(samplerate * VISUALIZER_BUFFER_SECONDS)
         self.visual_buffer = RingBuffer(buf_len)
         # Tape-mode control signals (warble pitch deviation, bloom gain-1):
@@ -296,16 +281,20 @@ class AudioEngine:
                 # Zero-depth tape processing is an exact dry passthrough,
                 # so the base stays continuous when no tape layers exist.
                 source_pos = self.modulator._read_pos
-                base = self.modulator.process(
-                    self.loop_array,
-                    frames,
-                    combined["warble_depth"],
-                    combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
-                    combined["rate_hz"],
-                    hue=avg_hue,
-                    sat=avg_sat,
-                    val=avg_val,
-                )
+                if layers:
+                    base = self.modulator.process(
+                        self.loop_array,
+                        frames,
+                        combined["warble_depth"],
+                        combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
+                        combined["rate_hz"],
+                        hue=avg_hue,
+                        sat=avg_sat,
+                        val=avg_val,
+                    )
+                else:
+                    base = self._next_dry(frames)
+                    self.modulator._read_pos = self._dry_pos
             else:
                 spec_layers = layers if mode == "spectral" else []
                 gran_layers = layers if mode == "granular" else []
@@ -313,6 +302,15 @@ class AudioEngine:
                 reverb_layers = []
                 source_pos = self._dry_pos
                 base = self._next_dry(frames)
+
+            if not layers and self._reverb_tail_blocks <= 0:
+                block = base.astype(np.float32)
+                self.warble_buffer.write(zeros)
+                self.bloom_buffer.write(zeros)
+                self.wet_buffer.write(zeros)
+                self._update_analysis_window(block)
+                self.visual_buffer.write(block)
+                return block
 
             live_frame = None
             if self.live_analysis and spec_layers:
@@ -342,7 +340,6 @@ class AudioEngine:
             wet_raw = spectral_wet + granular_wet + micro_wet
 
             n_wet = len(spec_layers) + len(gran_layers) + len(micro_layers)
-            duck = max(DUCK_FLOOR, 1.0 / (1.0 + DUCK_PER_LAYER * n_wet))
 
             # Reverb is itself an assignable engine: reverb-assigned layers
             # add no signal of their own but send the source into the shared
@@ -390,6 +387,10 @@ class AudioEngine:
                 rv_send = min(1.0, rv_controls["send"] + entry.engine_gain("reverb"))
                 source_reverb_send = (rv_send * base).astype(np.float32)
             reverb_input = managed_wet_raw + source_reverb_send
+            if float(np.max(np.abs(reverb_input))) > 1e-7:
+                self._reverb_tail_blocks = REVERB_TAIL_HOLD_BLOCKS
+            elif self._reverb_tail_blocks > 0:
+                self._reverb_tail_blocks -= 1
             wet = self.wet_limiter.process(
                 managed_wet_raw
                 + self.reverb_mix * self.reverb.process(reverb_input)
@@ -398,12 +399,7 @@ class AudioEngine:
             mix = self.wet_dry
             dry_gain = min(1.0, 2.0 * (1.0 - mix))
             wet_gain = min(1.0, 2.0 * mix)
-            wet_duck, self._wet_duck_state = wet_duck_curve(
-                managed_wet_raw,
-                self._wet_duck_state,
-            )
-            dry_curve = duck * wet_duck
-            block = soft_clip(dry_gain * dry_curve * base + wet_gain * wet).astype(
+            block = soft_clip(dry_gain * base + wet_gain * wet).astype(
                 np.float32
             )
             if mode == "mixed":
