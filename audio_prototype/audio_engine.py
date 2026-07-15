@@ -11,6 +11,7 @@ from reverb import SchroederReverb
 from ring_buffer import RingBuffer
 from spectral_processor import FFT_SIZE, SpectralProcessor, analyze_frame, analyze_loop
 from tape_modulator import TapeModulator
+from wet_bus import WetBusManager
 
 VISUALIZER_BUFFER_SECONDS = 2.0
 DUCK_PER_LAYER = 0.12
@@ -41,6 +42,7 @@ class AudioEngine:
         self.spectral = SpectralProcessor(samplerate, seed=seed)
         self.granular = GranularProcessor(samplerate, seed=seed)
         self.reverb = SchroederReverb(samplerate)
+        self.wet_bus = WetBusManager(samplerate)
         self.reverb_mix = 0.35
         # Guards the wet bus against sustained overload (many layers,
         # live-analysis feedback, long reverb tails all stacking up).
@@ -185,15 +187,28 @@ class AudioEngine:
                     sum(l["val"] for l in reverb_layers) / n_rv
                 )
             else:
+                n_rv = 0
                 target_fb = REVERB_DEFAULT_FEEDBACK
                 target_cut = REVERB_DEFAULT_CUTOFF
+            controls = self.wet_bus.controls(
+                wet_voice_count=n_wet,
+                reverb_layer_count=n_rv,
+            )
+            target_fb = max(0.62, target_fb - controls["feedback_trim"])
+            target_cut = max(700.0, target_cut * controls["cutoff_scale"])
             self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
             self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
             self.reverb.set_feedback(self._rv_feedback)
             self.reverb.set_cutoff(self._rv_cutoff)
 
+            managed_wet_raw = self.wet_bus.process(
+                wet_raw,
+                wet_voice_count=n_wet,
+                reverb_layer_count=n_rv,
+            )
             wet = self.wet_limiter.process(
-                wet_raw + self.reverb_mix * self.reverb.process(wet_raw)
+                managed_wet_raw
+                + self.reverb_mix * self.reverb.process(managed_wet_raw)
             )
             # Wet/dry balance: 0 = dry only, 0.5 = both full, 1 = wet only.
             mix = self.wet_dry

@@ -309,10 +309,11 @@ def test_many_layers_with_feedback_stay_bounded():
 
     wet = engine.wet_buffer.read_latest(1024 * 40)
     wet_rms = float(np.sqrt(np.mean(wet**2)))
-    # limiter holds sustained wet energy near its target instead of
-    # letting it pin the soft clipper
+    # adaptive wet-bus management holds sustained wet energy down before
+    # the limiter has to become the primary sound-shaping stage
     assert wet_rms < 0.5
-    assert engine.wet_limiter.gain < 1.0
+    controls = engine.wet_bus.controls(wet_voice_count=20, reverb_layer_count=0)
+    assert controls["wet_gain"] < 0.6
 
 
 def test_live_analysis_flag_changes_spectral_behavior():
@@ -336,3 +337,70 @@ def test_live_analysis_flag_changes_spectral_behavior():
     live = engine2.generate_block(4096)
 
     assert not np.allclose(precomputed, live)
+
+
+def _band_rms(x, samplerate, low_hz, high_hz):
+    x = np.asarray(x)
+    spectrum = np.fft.rfft(x * np.hanning(len(x)))
+    freqs = np.fft.rfftfreq(len(x), 1.0 / samplerate)
+    mask = (freqs >= low_hz) & (freqs <= high_hz)
+    return float(np.sqrt(np.mean(np.abs(spectrum[mask]) ** 2)))
+
+
+def test_dense_wet_layers_trigger_wet_bus_gain_reduction():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    for _ in range(20):
+        engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=120, engine="spectral")
+
+    for _ in range(20):
+        engine.generate_block(1024)
+
+    controls = engine.wet_bus.controls(wet_voice_count=20, reverb_layer_count=0)
+    assert controls["wet_gain"] < 0.6
+    assert engine.wet_limiter.gain > 0.2
+
+
+def test_dense_wet_bus_reduces_low_mid_energy():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    low_mid = np.sin(2 * np.pi * 160 * np.arange(8192) / engine.samplerate).astype(
+        np.float32
+    )
+
+    shaped_sparse = engine.wet_bus.process(
+        low_mid, wet_voice_count=1, reverb_layer_count=0
+    )
+
+    engine2 = AudioEngine(seed=1)
+    engine2.load_loop(str(SAMPLE_LOOP))
+    shaped_dense = engine2.wet_bus.process(
+        low_mid, wet_voice_count=20, reverb_layer_count=0
+    )
+
+    sparse_low = _band_rms(shaped_sparse, engine.samplerate, 80, 300)
+    dense_low = _band_rms(shaped_dense, engine.samplerate, 80, 300)
+    assert dense_low < sparse_low * 0.7
+
+
+def test_reverb_density_tightens_feedback_and_cutoff():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=40, engine="reverb")
+    for _ in range(20):
+        engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=120, engine="spectral")
+
+    for _ in range(80):
+        engine.generate_block(1024)
+
+    dense_feedback = engine.reverb._combs[0].feedback
+    dense_cutoff = engine.reverb._lowpass.cutoff_hz
+
+    sparse = AudioEngine(seed=1)
+    sparse.load_loop(str(SAMPLE_LOOP))
+    sparse.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=40, engine="reverb")
+    for _ in range(80):
+        sparse.generate_block(1024)
+
+    assert dense_feedback < sparse.reverb._combs[0].feedback
+    assert dense_cutoff < sparse.reverb._lowpass.cutoff_hz
