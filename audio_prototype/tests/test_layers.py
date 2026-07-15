@@ -29,10 +29,16 @@ def test_add_with_engine_assignment():
     assert reg.snapshot()[0]["engine"] == "granular"
 
 
+def test_reverb_is_a_valid_engine():
+    reg = LayerRegistry()
+    reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="reverb")
+    assert reg.snapshot()[0]["engine"] == "reverb"
+
+
 def test_add_rejects_unknown_engine():
     reg = LayerRegistry()
     with pytest.raises(ValueError):
-        reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="reverb")
+        reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70, engine="delay")
 
 
 def test_remove_deletes_only_that_layer():

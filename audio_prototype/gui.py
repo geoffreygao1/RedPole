@@ -43,7 +43,6 @@ class RedPoleGUI:
         self.sat_var = tk.DoubleVar(value=0.75)
         self.val_var = tk.DoubleVar(value=0.64)
         self.bpm_var = tk.StringVar(value="70")
-        self.mode_var = tk.StringVar(value="tape")
         self.engine_var = tk.StringVar(value="spectral")
         self.live_var = tk.BooleanVar(value=False)
         self.reverb_var = tk.DoubleVar(value=self.engine.reverb_mix)
@@ -65,19 +64,10 @@ class RedPoleGUI:
             row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8)
         )
 
-        ttk.Label(frame, text="Mode").grid(row=1, column=0, sticky="w")
-        mode_box = ttk.Combobox(
-            frame, textvariable=self.mode_var, state="readonly",
-            values=list(self.engine.MODES), width=10,
-        )
-        mode_box.grid(row=1, column=1, sticky="w", pady=(0, 4))
-        mode_box.bind("<<ComboboxSelected>>",
-                      lambda _e: self.engine.set_mode(self.mode_var.get()))
-
         self.pause_button = ttk.Button(
             frame, text="Pause", command=self._on_toggle_playback, width=7
         )
-        self.pause_button.grid(row=1, column=2, padx=(8, 0))
+        self.pause_button.grid(row=1, column=0, columnspan=3, sticky="ew")
 
         ttk.Label(frame, text="Finger color").grid(
             row=2, column=0, columnspan=3, sticky="w", pady=(6, 2)
@@ -104,7 +94,7 @@ class RedPoleGUI:
         ttk.Label(frame, text="Engine").grid(row=5, column=0, sticky="w", pady=(4, 0))
         ttk.Combobox(
             frame, textvariable=self.engine_var, state="readonly",
-            values=["tape", "spectral", "granular"], width=10,
+            values=["tape", "spectral", "granular", "reverb"], width=10,
         ).grid(row=5, column=1, sticky="w", pady=(4, 0))
 
         ttk.Checkbutton(
@@ -185,8 +175,35 @@ class RedPoleGUI:
 
     def _build_layer_list(self):
         frame = ttk.LabelFrame(self.root, text="Active Layers")
-        frame.grid(row=1, column=0, sticky="new", padx=8, pady=8)
-        self.layer_list_frame = frame
+        frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+
+        canvas = tk.Canvas(frame, height=180, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        self.layer_list_frame = ttk.Frame(canvas)
+
+        window = canvas.create_window(
+            (0, 0), window=self.layer_list_frame, anchor="nw"
+        )
+        self.layer_list_frame.bind(
+            "<Configure>",
+            lambda _e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>", lambda e: canvas.itemconfigure(window, width=e.width)
+        )
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # scroll with the mouse wheel while the pointer is over the list
+        canvas.bind(
+            "<Enter>",
+            lambda _e: canvas.bind_all(
+                "<MouseWheel>",
+                lambda e: canvas.yview_scroll(-e.delta // 120, "units"),
+            ),
+        )
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
 
     def _read_bpm(self):
         try:

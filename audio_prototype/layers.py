@@ -1,6 +1,6 @@
 import threading
 
-ENGINES = ("tape", "spectral", "granular")
+ENGINES = ("tape", "spectral", "granular", "reverb")
 
 
 class LayerRegistry:

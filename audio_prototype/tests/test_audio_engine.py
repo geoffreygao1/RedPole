@@ -93,9 +93,9 @@ def test_modulation_buffers_flat_with_no_layers():
     np.testing.assert_allclose(engine.bloom_buffer.read_latest(512), np.zeros(512), atol=1e-9)
 
 
-def test_default_mode_is_tape():
+def test_default_mode_is_mixed():
     engine = AudioEngine(seed=1)
-    assert engine.mode == "tape"
+    assert engine.mode == "mixed"
 
 
 def test_set_mode_validates():
@@ -258,12 +258,11 @@ def test_wet_dry_one_mutes_dry():
     np.testing.assert_allclose(block, np.zeros(512), atol=1e-5)
 
 
-def test_reverb_character_follows_layer_bpm():
+def test_reverb_character_follows_reverb_layer_bpm():
     def settled_feedback(bpm):
         engine = AudioEngine(seed=1)
         engine.load_loop(str(SAMPLE_LOOP))
-        engine.set_mode("spectral")
-        engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=bpm, engine="spectral")
+        engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=bpm, engine="reverb")
         for _ in range(60):
             engine.generate_block(1024)
         return engine.reverb._combs[0].feedback
@@ -271,17 +270,27 @@ def test_reverb_character_follows_layer_bpm():
     assert settled_feedback(40) > settled_feedback(180)
 
 
-def test_reverb_character_follows_layer_brightness():
+def test_reverb_character_follows_reverb_layer_brightness():
     def settled_cutoff(val):
         engine = AudioEngine(seed=1)
         engine.load_loop(str(SAMPLE_LOOP))
-        engine.set_mode("spectral")
-        engine.registry.add(hue=0.0, sat=0.5, val=val, bpm=120, engine="spectral")
+        engine.registry.add(hue=0.0, sat=0.5, val=val, bpm=120, engine="reverb")
         for _ in range(60):
             engine.generate_block(1024)
         return engine.reverb._lowpass.cutoff_hz
 
     assert settled_cutoff(0.3) < settled_cutoff(1.0)
+
+
+def test_reverb_layers_do_not_duck_or_add_signal():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=120, engine="reverb")
+    block = engine.generate_block(512)
+    dry = engine.loop_array[np.arange(512) % len(engine.loop_array)]
+    # a reverb-only layer shapes the room but adds no signal of its own
+    np.testing.assert_allclose(block, dry, atol=1e-6)
+    np.testing.assert_allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
 
 
 def test_live_analysis_flag_changes_spectral_behavior():

@@ -101,7 +101,35 @@ def test_analyze_frame_finds_tone():
     assert amps.shape == (N_PARTIALS,)
     strongest = freqs[np.argmax(amps)]
     assert strongest == pytest.approx(440.0, abs=SR / 4096 * 1.5)
-    assert amps.max() == pytest.approx(1.0)
+    # amps are TRUE amplitudes (the tone is 0.5), not normalized to 1 --
+    # normalizing made quiet output re-excite feedback at full level
+    assert amps.max() == pytest.approx(0.5, abs=0.1)
+
+
+def test_live_feedback_decays_without_fresh_input():
+    """A voice fed analysis of its own output must fade, not run away."""
+    loop = _tone(440.0)
+    proc = SpectralProcessor(SR)
+    proc.set_analysis(analyze_loop(loop, SR))
+    layer = _layer(1, hue=0.0, sat=0.0, val=1.0, bpm=300.0)
+
+    # seed the voice with a strong external partial
+    freqs = np.zeros(N_PARTIALS)
+    amps = np.zeros(N_PARTIALS)
+    freqs[0], amps[0] = 440.0, 0.8
+    out = None
+    for _ in range(5):
+        out = proc.process(loop, 4096, [layer], live_frame=(freqs, amps))
+
+    # then close the loop: each block only hears its own previous output
+    rms = []
+    for _ in range(40):
+        live = analyze_frame(out, SR)
+        out = proc.process(loop, 4096, [layer], live_frame=live)
+        rms.append(float(np.sqrt(np.mean(out**2))))
+
+    assert rms[-1] < rms[0] * 0.5
+    assert max(rms) < 1.0
 
 
 def test_analyze_frame_silent_window_is_flat():

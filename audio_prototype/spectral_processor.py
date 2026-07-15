@@ -25,15 +25,18 @@ def _extract_partials(mag, bin_freqs, n_partials):
 def analyze_frame(window, samplerate, n_partials=N_PARTIALS):
     """Single-frame partial extraction for live-output analysis.
 
-    Amps are normalized to the frame's own max (silent window -> zeros).
+    Amps are TRUE amplitudes (a sine of amplitude A reports ~A), NOT
+    normalized to the frame's max. Per-frame normalization made even a
+    fading output re-excite the feedback voices at full level, so the
+    loop could never decay.
     """
     window = np.asarray(window, dtype=np.float64)
-    mag = np.abs(np.fft.rfft(window * np.hanning(len(window))))
+    hann = np.hanning(len(window))
+    mag = np.abs(np.fft.rfft(window * hann))
     bin_freqs = np.fft.rfftfreq(len(window), 1.0 / samplerate)
     freqs, amps = _extract_partials(mag, bin_freqs, n_partials)
-    peak = amps.max()
-    if peak > 0:
-        amps /= peak
+    # windowed-FFT peak of a sine with amplitude A is A * sum(hann) / 2
+    amps *= 2.0 / np.sum(hann)
     return freqs, amps
 
 
@@ -119,7 +122,9 @@ class SpectralProcessor:
 
             if live_frame is not None:
                 target_freqs, target_amps = live_frame
-                target_amps = target_amps * LIVE_FEEDBACK_GAIN
+                # divide by voice count so N voices all hearing the same
+                # output can't multiply each other back above unity gain
+                target_amps = target_amps * (LIVE_FEEDBACK_GAIN / len(layers))
                 # bpm -> tracking speed (fast pulse = tight tracking),
                 # sat adds smear on top
                 alpha = clamp(0.97 - 0.5 * (layer["bpm"] / 300.0), 0.3, 0.97)

@@ -56,7 +56,7 @@ class AudioEngine:
         self.wet_buffer = RingBuffer(buf_len)
         self.loop_array = None
         self._stream = None
-        self._mode = "tape"
+        self._mode = "mixed"
         self._mode_lock = threading.Lock()
         self._dry_pos = 0
         self._paused = False
@@ -141,6 +141,7 @@ class AudioEngine:
                 tape_layers = [l for l in layers if l["engine"] == "tape"]
                 spec_layers = [l for l in layers if l["engine"] == "spectral"]
                 gran_layers = [l for l in layers if l["engine"] == "granular"]
+                reverb_layers = [l for l in layers if l["engine"] == "reverb"]
                 combined = combine_layers(tape_layers)
                 # Zero-depth tape processing is an exact dry passthrough,
                 # so the base stays continuous when no tape layers exist.
@@ -154,6 +155,7 @@ class AudioEngine:
             else:
                 spec_layers = layers if mode == "spectral" else []
                 gran_layers = layers if mode == "granular" else []
+                reverb_layers = []
                 base = self._next_dry(frames)
 
             live_frame = None
@@ -167,16 +169,17 @@ class AudioEngine:
             n_wet = len(spec_layers) + len(gran_layers)
             duck = max(DUCK_FLOOR, 1.0 / (1.0 + DUCK_PER_LAYER * n_wet))
 
-            # The shared reverb "room" responds to the people in it: their
+            # Reverb is itself an assignable engine: reverb-assigned layers
+            # add no signal of their own but shape the shared room -- their
             # average pulse sets the decay, their average brightness colors
-            # the tail. No wet layers -> drift back to neutral defaults.
-            wet_layers = spec_layers + gran_layers
-            if wet_layers:
+            # the tail. No reverb layers -> drift back to neutral defaults.
+            if reverb_layers:
+                n_rv = len(reverb_layers)
                 target_fb = bpm_to_reverb_feedback(
-                    sum(l["bpm"] for l in wet_layers) / n_wet
+                    sum(l["bpm"] for l in reverb_layers) / n_rv
                 )
                 target_cut = val_to_reverb_cutoff(
-                    sum(l["val"] for l in wet_layers) / n_wet
+                    sum(l["val"] for l in reverb_layers) / n_rv
                 )
             else:
                 target_fb = REVERB_DEFAULT_FEEDBACK
@@ -194,8 +197,14 @@ class AudioEngine:
             block = soft_clip(dry_gain * duck * base + wet_gain * wet).astype(
                 np.float32
             )
-            self.warble_buffer.write(zeros)
-            self.bloom_buffer.write(zeros)
+            if mode == "mixed":
+                # the tape modulator runs as the base, so its control
+                # signals are live and worth showing
+                self.warble_buffer.write(self.modulator.last_warble_signal)
+                self.bloom_buffer.write(self.modulator.last_gain - 1.0)
+            else:
+                self.warble_buffer.write(zeros)
+                self.bloom_buffer.write(zeros)
             self.wet_buffer.write(wet)
 
         self._update_analysis_window(block)
