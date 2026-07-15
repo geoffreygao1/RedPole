@@ -12,10 +12,10 @@ def test_add_returns_unique_ids():
 
 def test_snapshot_reflects_added_layers():
     reg = LayerRegistry()
-    reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70)
+    layer_id = reg.add(hue=0.1, sat=0.5, val=0.5, bpm=70)
     snap = reg.snapshot()
     assert len(snap) == 1
-    assert snap[0] == {"hue": 0.1, "sat": 0.5, "val": 0.5, "bpm": 70}
+    assert snap[0] == {"id": layer_id, "hue": 0.1, "sat": 0.5, "val": 0.5, "bpm": 70}
 
 
 def test_remove_deletes_only_that_layer():

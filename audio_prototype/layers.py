@@ -18,7 +18,9 @@ class LayerRegistry:
         with self._lock:
             layer_id = self._next_id
             self._next_id += 1
-            self._layers[layer_id] = {"hue": hue, "sat": sat, "val": val, "bpm": bpm}
+            self._layers[layer_id] = {
+                "id": layer_id, "hue": hue, "sat": sat, "val": val, "bpm": bpm
+            }
             return layer_id
 
     def remove(self, layer_id):
