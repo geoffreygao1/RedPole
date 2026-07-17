@@ -4,7 +4,7 @@
 
 // ---- hardware config ------------------------------------------------------
 #define ACTIVE_JACKS 1        // bump to 4 when jacks 1-3 are wired
-#define PRESENT_LEVEL HIGH    // flip if presence reads inverted at boot
+#define PRESENT_LEVEL LOW     // tip switch pulls the divider low when a plug is inserted (verified on hardware)
 #define DEBOUNCE_MS 30
 
 // Per-jack pins. Only the first ACTIVE_JACKS entries are used.
