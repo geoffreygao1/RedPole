@@ -61,6 +61,13 @@ static void logEvent(const PatchEvent& e) {
   }
 }
 
+// Random color constrained to the red-to-yellow arc (FastLED hue 0-64),
+// full saturation/value so it stays vivid.
+static Color randomColor() {
+  CRGB rgb = CHSV(esp_random() % 65, 255, 255);
+  return Color{rgb.r, rgb.g, rgb.b};
+}
+
 // ---- serial commands --------------------------------------------------------
 static bool parseHex(const char* s, Color& out) {
   if (s[0] != '#' || strlen(s) != 7) return false;
@@ -113,8 +120,7 @@ static void handleLine(const char* line) {
   if (strncmp(line, "set ", 4) == 0) {
     const char* arg = line + 4;
     if (strcmp(arg, "random") == 0) {
-      CRGB rgb = CHSV(esp_random() & 0xFF, 255, 255);
-      c = Color{rgb.r, rgb.g, rgb.b};
+      c = randomColor();
     } else if (!parseHex(arg, c) && !parseCsv(arg, c)) {
       Serial.printf("set: bad color '%s' (use set #RRGGBB, set R,G,B, or set random)\n", arg);
       return;
@@ -129,9 +135,7 @@ static void handleLine(const char* line) {
     return;
   }
   if (strcmp(line, "random") == 0) {
-    // Random hue at full saturation/value so the color is always vivid.
-    CRGB rgb = CHSV(esp_random() & 0xFF, 255, 255);
-    c = Color{rgb.r, rgb.g, rgb.b};
+    c = randomColor();
     Serial.printf("random color: #%02X%02X%02X\n", c.r, c.g, c.b);
     PatchEvent e = stageColor(state, c);
     logEvent(e);
