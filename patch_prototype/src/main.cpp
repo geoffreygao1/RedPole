@@ -188,5 +188,20 @@ void setup() {
 void loop() {
   pollSerial();
   pollJacks();
+
+  // Retransmit LED state continuously: a plug being inserted can trigger the
+  // presence switch before its LED has stable power, so a one-shot send on the
+  // insert event can be missed and the LED would stay dark until the next event.
+  static uint32_t lastRefreshMs = 0;
+  if (millis() - lastRefreshMs >= 250) {
+    lastRefreshMs = millis();
+    for (uint8_t j = 0; j < ACTIVE_JACKS; j++) {
+      bool lit = state.jacks[j].present && state.jacks[j].hasColor;
+      Color c = state.jacks[j].color;
+      leds[j] = lit ? CRGB(c.r, c.g, c.b) : CRGB::Black;
+    }
+    FastLED.show();
+  }
+
   delay(2);
 }
