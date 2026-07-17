@@ -108,6 +108,23 @@ static void handleLine(const char* line) {
     return;
   }
   Color c;
+  // "set <color>": hardware test aid — force the color onto every present jack
+  // immediately, bypassing the cable staging/pairing logic.
+  if (strncmp(line, "set ", 4) == 0) {
+    const char* arg = line + 4;
+    if (!parseHex(arg, c) && !parseCsv(arg, c)) {
+      Serial.printf("set: bad color '%s' (use set #RRGGBB or set R,G,B)\n", arg);
+      return;
+    }
+    for (uint8_t j = 0; j < ACTIVE_JACKS; j++) {
+      if (!state.jacks[j].present) continue;
+      state.jacks[j].color = c;
+      state.jacks[j].hasColor = true;
+      renderJack(j);
+      Serial.printf("jack %d set to #%02X%02X%02X\n", j, c.r, c.g, c.b);
+    }
+    return;
+  }
   if (strcmp(line, "random") == 0) {
     // Random hue at full saturation/value so the color is always vivid.
     CRGB rgb = CHSV(esp_random() & 0xFF, 255, 255);
@@ -124,7 +141,7 @@ static void handleLine(const char* line) {
     if (e.type == EV_RETRO_COLORED) renderJack(e.jackA);
     return;
   }
-  Serial.printf("unrecognized: '%s' (use #RRGGBB, R,G,B, random, status, off)\n", line);
+  Serial.printf("unrecognized: '%s' (use #RRGGBB, R,G,B, random, set <color>, status, off)\n", line);
 }
 
 static void pollSerial() {
@@ -182,7 +199,7 @@ void setup() {
                   PRESENT_LEVEL == HIGH ? "HIGH" : "LOW");
   }
 
-  Serial.println("patch_prototype ready. commands: #RRGGBB | R,G,B | random | status | off");
+  Serial.println("patch_prototype ready. commands: #RRGGBB | R,G,B | random | set <color> | status | off");
 }
 
 void loop() {
