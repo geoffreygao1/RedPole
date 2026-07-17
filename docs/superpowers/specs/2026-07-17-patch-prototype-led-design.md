@@ -67,6 +67,7 @@ struct Jack {
 |---|---|
 | `#RRGGBB` | Stage color (hex) |
 | `R,G,B` | Stage color (decimal 0–255) |
+| `random` | Stage a random vivid color (random hue, full saturation/value) |
 | `status` | Dump every active jack: present, pairedWith, color, hasColor; plus staged color and pending queue |
 | `off` | Clear the staged color |
 

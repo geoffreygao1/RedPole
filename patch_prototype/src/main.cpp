@@ -108,13 +108,23 @@ static void handleLine(const char* line) {
     return;
   }
   Color c;
+  if (strcmp(line, "random") == 0) {
+    // Random hue at full saturation/value so the color is always vivid.
+    CRGB rgb = CHSV(esp_random() & 0xFF, 255, 255);
+    c = Color{rgb.r, rgb.g, rgb.b};
+    Serial.printf("random color: #%02X%02X%02X\n", c.r, c.g, c.b);
+    PatchEvent e = stageColor(state, c);
+    logEvent(e);
+    if (e.type == EV_RETRO_COLORED) renderJack(e.jackA);
+    return;
+  }
   if (parseHex(line, c) || parseCsv(line, c)) {
     PatchEvent e = stageColor(state, c);
     logEvent(e);
     if (e.type == EV_RETRO_COLORED) renderJack(e.jackA);
     return;
   }
-  Serial.printf("unrecognized: '%s' (use #RRGGBB, R,G,B, status, off)\n", line);
+  Serial.printf("unrecognized: '%s' (use #RRGGBB, R,G,B, random, status, off)\n", line);
 }
 
 static void pollSerial() {
@@ -172,7 +182,7 @@ void setup() {
                   PRESENT_LEVEL == HIGH ? "HIGH" : "LOW");
   }
 
-  Serial.println("patch_prototype ready. commands: #RRGGBB | R,G,B | status | off");
+  Serial.println("patch_prototype ready. commands: #RRGGBB | R,G,B | random | status | off");
 }
 
 void loop() {
