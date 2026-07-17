@@ -3,13 +3,13 @@
 #include "patch_logic.h"
 
 // ---- hardware config ------------------------------------------------------
-#define ACTIVE_JACKS 1        // bump to 4 when jacks 1-3 are wired
+#define ACTIVE_JACKS 4
 #define PRESENT_LEVEL LOW     // tip switch pulls the divider low when a plug is inserted (verified on hardware)
 #define DEBOUNCE_MS 30
 
-// Per-jack pins. Only the first ACTIVE_JACKS entries are used.
-static const uint8_t LED_PINS[NUM_JACKS]   = {9, 0, 0, 0};   // D10 = GPIO9
-static const uint8_t SENSE_PINS[NUM_JACKS] = {8, 0, 0, 0};   // D9  = GPIO8
+// Per-jack pins (jack index 0-3 = port 1-4).
+static const uint8_t LED_PINS[NUM_JACKS]   = {9, 7, 43, 5};
+static const uint8_t SENSE_PINS[NUM_JACKS] = {8, 44, 6, 4};
 
 // ---- state ----------------------------------------------------------------
 static PatchState state;
@@ -185,8 +185,12 @@ void setup() {
   delay(500);
   patchInit(state);
 
-  // FastLED needs the pin as a template constant; add one line per wired jack.
-  FastLED.addLeds<PL9823, 9>(&leds[0], 1);  // jack 0, DIN on GPIO9 (D10)
+  // FastLED needs the pin as a template constant, hence one line per jack
+  // (keep in sync with LED_PINS).
+  FastLED.addLeds<PL9823, 9>(&leds[0], 1);
+  FastLED.addLeds<PL9823, 7>(&leds[1], 1);
+  FastLED.addLeds<PL9823, 43>(&leds[2], 1);
+  FastLED.addLeds<PL9823, 5>(&leds[3], 1);
   FastLED.clear(true);
 
   for (uint8_t j = 0; j < ACTIVE_JACKS; j++) {
