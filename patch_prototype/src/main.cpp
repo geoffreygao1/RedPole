@@ -112,8 +112,11 @@ static void handleLine(const char* line) {
   // immediately, bypassing the cable staging/pairing logic.
   if (strncmp(line, "set ", 4) == 0) {
     const char* arg = line + 4;
-    if (!parseHex(arg, c) && !parseCsv(arg, c)) {
-      Serial.printf("set: bad color '%s' (use set #RRGGBB or set R,G,B)\n", arg);
+    if (strcmp(arg, "random") == 0) {
+      CRGB rgb = CHSV(esp_random() & 0xFF, 255, 255);
+      c = Color{rgb.r, rgb.g, rgb.b};
+    } else if (!parseHex(arg, c) && !parseCsv(arg, c)) {
+      Serial.printf("set: bad color '%s' (use set #RRGGBB, set R,G,B, or set random)\n", arg);
       return;
     }
     for (uint8_t j = 0; j < ACTIVE_JACKS; j++) {
