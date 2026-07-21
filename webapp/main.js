@@ -9,9 +9,9 @@ const PATCH_SOURCE_GAP = 20;
 const PATCH_SOURCE_LIMIT = 25;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
 // order and engine names sent in connect_source's "engine" field.
-const ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "tape"];
-const TAPE_ROW_INDEX = ROW_LABELS.indexOf("tape");
-const TAPE_COL_LABELS = ["wow", "flutter", "tone", "dropout", "reverb"];
+const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
+const ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
+const TAPE_ROW_INDEX = PATCH_ROW_ENGINES.indexOf("tape");
 const VARIANT_COL_LABELS = ["I", "II", "III", "IV", "V"];
 
 // Finger-scan gamut, matching the desktop app's picker (modulation.py's
@@ -332,7 +332,7 @@ class App {
       source.row = null;
       source.col = null;
     } else {
-      const engine = cell.row === TAPE_ROW_INDEX && cell.col === 4 ? "reverb" : ROW_LABELS[cell.row];
+      const engine = cell.row === TAPE_ROW_INDEX && cell.col === 4 ? "reverb" : PATCH_ROW_ENGINES[cell.row];
       this.worker.postMessage({
         type: "connect_source",
         sourceId: this.dragSourceId,
@@ -354,8 +354,14 @@ class App {
     ctx.fillStyle = "#161616";
     ctx.fillRect(0, 0, this.patchCanvas.width, this.patchCanvas.height);
 
+    const cellColors = new Map();
+    for (const [, source] of this.sources) {
+      if (source.row !== null) {
+        cellColors.set(`${source.row}:${source.col}`, source.color);
+      }
+    }
+
     for (let row = 0; row < PATCH_GRID_ROWS; row++) {
-      const labels = row === TAPE_ROW_INDEX ? TAPE_COL_LABELS : VARIANT_COL_LABELS;
       ctx.fillStyle = "#d5d5d5";
       ctx.font = "12px sans-serif";
       ctx.textAlign = "right";
@@ -365,12 +371,12 @@ class App {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
         const y0 = PATCH_GRID_Y + row * PATCH_CELL;
         ctx.strokeStyle = "#555";
-        ctx.fillStyle = "#222";
+        ctx.fillStyle = cellColors.get(`${row}:${col}`) || "#2a2a2a";
         ctx.fillRect(x0, y0, PATCH_CELL, PATCH_CELL);
         ctx.strokeRect(x0, y0, PATCH_CELL, PATCH_CELL);
-        ctx.fillStyle = "#888";
+        ctx.fillStyle = cellColors.has(`${row}:${col}`) ? "#111" : "#888";
         ctx.font = "9px sans-serif";
-        ctx.fillText(labels[col], x0 + 6, y0 + 14);
+        ctx.fillText(VARIANT_COL_LABELS[col], x0 + 6, y0 + 14);
       }
     }
 
@@ -399,9 +405,7 @@ class App {
 
   cellLabel(row, col) {
     if (row === null) return "unconnected";
-    if (row === TAPE_ROW_INDEX && col === 4) return "reverb";
-    const labels = row === TAPE_ROW_INDEX ? TAPE_COL_LABELS : VARIANT_COL_LABELS;
-    return `${ROW_LABELS[row]} / ${labels[col]}`;
+    return `${ROW_LABELS[row]} / ${VARIANT_COL_LABELS[col]}`;
   }
 
   renderSourceList() {
