@@ -56,6 +56,22 @@ function pickerCoordsToHsv(x, y, w, h) {
   };
 }
 
+function hsvToPickerCoords(hsv, w, h) {
+  const hueRange = FINGER_HUE_MAX - FINGER_HUE_MIN;
+  const valRange = FINGER_VAL_MAX - FINGER_VAL_MIN;
+  const fx = hueRange === 0 ? 0 : (hsv.hue - FINGER_HUE_MIN) / hueRange;
+  const fy = valRange === 0 ? 0 : (FINGER_VAL_MAX - hsv.val) / valRange;
+  return {
+    x: Math.min(w - 1, Math.max(0, fx * (w - 1))),
+    y: Math.min(h - 1, Math.max(0, fy * (h - 1))),
+  };
+}
+
+function hsvToCssColor(hsv) {
+  const [r, g, b] = hsvToRgb(hsv.hue, hsv.sat, hsv.val);
+  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+}
+
 // Matches desktop's _patch_cable_points (audio_prototype/gui.py:129-140):
 // a 12-step parabolic sag curve, sag clamped to [24, 72] scaled by the
 // horizontal distance between the two ends.
@@ -129,6 +145,7 @@ class App {
     this.statusEl = document.getElementById("status");
     this.appEl = document.getElementById("app");
     this.pickerCanvas = document.getElementById("picker");
+    this.scanColorPreview = document.getElementById("scan-color-preview");
     this.patchCanvas = document.getElementById("patch-canvas");
     this.bpmInput = document.getElementById("bpm-input");
     this.bufferReadout = document.getElementById("buffer-readout");
@@ -139,6 +156,8 @@ class App {
     this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
     this.setupAudio();
     this.buildPicker();
+    this.drawPicker();
+    this.updateScanPreview();
     this.bindControls();
     this.drawPatchBay();
   }
@@ -182,19 +201,18 @@ class App {
     const ctx = this.pickerCanvas.getContext("2d");
     const w = this.pickerCanvas.width;
     const h = this.pickerCanvas.height;
-    const image = ctx.createImageData(w, h);
+    this.pickerImage = ctx.createImageData(w, h);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const { hue, sat, val } = pickerCoordsToHsv(x, y, w, h);
         const [r, g, b] = hsvToRgb(hue, sat, val);
         const idx = (y * w + x) * 4;
-        image.data[idx] = Math.round(r * 255);
-        image.data[idx + 1] = Math.round(g * 255);
-        image.data[idx + 2] = Math.round(b * 255);
-        image.data[idx + 3] = 255;
+        this.pickerImage.data[idx] = Math.round(r * 255);
+        this.pickerImage.data[idx + 1] = Math.round(g * 255);
+        this.pickerImage.data[idx + 2] = Math.round(b * 255);
+        this.pickerImage.data[idx + 3] = 255;
       }
     }
-    ctx.putImageData(image, 0, 0);
 
     this.pickerCanvas.addEventListener("mousedown", (e) => this.onPick(e));
     this.pickerCanvas.addEventListener("mousemove", (e) => {
@@ -202,11 +220,38 @@ class App {
     });
   }
 
+  drawPicker() {
+    const ctx = this.pickerCanvas.getContext("2d");
+    ctx.putImageData(this.pickerImage, 0, 0);
+    const { x, y } = hsvToPickerCoords(
+      this.currentHsv,
+      this.pickerCanvas.width,
+      this.pickerCanvas.height
+    );
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
+  updateScanPreview() {
+    this.scanColorPreview.style.background = hsvToCssColor(this.currentHsv);
+  }
+
   onPick(event) {
     const rect = this.pickerCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     this.currentHsv = pickerCoordsToHsv(x, y, this.pickerCanvas.width, this.pickerCanvas.height);
+    this.drawPicker();
+    this.updateScanPreview();
   }
 
   onRandom() {
@@ -215,6 +260,8 @@ class App {
     this.currentHsv = pickerCoordsToHsv(x, y, this.pickerCanvas.width, this.pickerCanvas.height);
     const bpm = Math.round(RANDOM_BPM_MIN + Math.random() * (RANDOM_BPM_MAX - RANDOM_BPM_MIN));
     this.bpmInput.value = bpm;
+    this.drawPicker();
+    this.updateScanPreview();
   }
 
   bindControls() {
@@ -280,8 +327,7 @@ class App {
       bpm = Math.min(300, Math.max(20, bpm));
     }
     const { hue, sat, val } = this.currentHsv;
-    const [r, g, b] = hsvToRgb(hue, sat, val);
-    const color = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+    const color = hsvToCssColor(this.currentHsv);
     this._pendingSources.push({ hue, sat, val, bpm, color });
     this.worker.postMessage({ type: "add_source", hue, sat, val, bpm });
   }
