@@ -1,0 +1,52 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [github-pages]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble site (webapp/ and audio_prototype/*.py as siblings)
+        run: |
+          mkdir -p site/webapp
+          mkdir -p site/audio_prototype
+          cp -r webapp/. site/webapp/
+          cp audio_prototype/modulation.py \
+             audio_prototype/layers.py \
+             audio_prototype/tape_modulator.py \
+             audio_prototype/microcosm_processor.py \
+             audio_prototype/reverb.py \
+             audio_prototype/wet_bus.py \
+             audio_prototype/web_engine.py \
+             site/audio_prototype/
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <meta http-equiv="refresh" content="0; url=webapp/index.html">
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
