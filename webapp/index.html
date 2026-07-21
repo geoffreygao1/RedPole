@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>RedPole (Web MVP)</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>RedPole -- Web MVP</h1>
+  <div id="status">Loading audio engine...</div>
+
+  <div id="app" class="hidden">
+    <section id="scan-input">
+      <h2>Scan Input</h2>
+      <button id="load-loop-button">Load Loop...</button>
+      <input id="load-loop-file" type="file" accept="audio/*" class="hidden" />
+      <button id="play-pause-button">Play</button>
+      <div>
+        <label>Finger color</label>
+        <canvas id="picker" width="220" height="120"></canvas>
+      </div>
+      <div>
+        <label>BPM <input id="bpm-input" type="number" value="70" min="20" max="300" /></label>
+      </div>
+      <button id="send-button">Send</button>
+      <div>
+        <label>Wet/Dry <input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
+      </div>
+    </section>
+
+    <section id="patch-bay">
+      <h2>Patch Bay</h2>
+      <canvas id="patch-canvas" width="640" height="260"></canvas>
+    </section>
+
+    <section id="debug">
+      <span id="buffer-readout">Buffered: -- ms</span>
+      <span id="underrun-readout">Underruns: 0</span>
+    </section>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
