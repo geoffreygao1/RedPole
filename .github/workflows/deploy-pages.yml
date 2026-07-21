@@ -2,7 +2,17 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [github-pages]
+    branches: [audio]
+    paths:
+      - "webapp/**"
+      - "audio_prototype/modulation.py"
+      - "audio_prototype/layers.py"
+      - "audio_prototype/tape_modulator.py"
+      - "audio_prototype/microcosm_processor.py"
+      - "audio_prototype/reverb.py"
+      - "audio_prototype/wet_bus.py"
+      - "audio_prototype/web_engine.py"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
 
 permissions:
