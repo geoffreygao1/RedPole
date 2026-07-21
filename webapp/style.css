@@ -2,7 +2,7 @@ body {
   font-family: system-ui, sans-serif;
   background: #161616;
   color: #e0e0e0;
-  padding: 14px;
+  padding: 16px;
 }
 
 .hidden {
@@ -20,17 +20,34 @@ section {
   background: #1f1f1f;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
-  padding: 10px 14px;
+  padding: 12px 14px;
+  box-sizing: border-box;
 }
 
 section h2 {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   font-size: 1rem;
   font-weight: 600;
 }
 
+section h3 {
+  margin: 14px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid #343434;
+  color: #d8d8d8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 #scan-input {
   width: 248px;
+}
+
+#scan-input,
+#patch-bay,
+#sources {
+  height: 470px;
 }
 
 .control-row {
@@ -88,9 +105,9 @@ button {
 #source-list {
   list-style: none;
   padding: 0;
-  margin: 6px 0 0;
+  margin: 0;
   min-width: 220px;
-  max-height: 312px;
+  height: 410px;
   overflow-y: auto;
   padding-right: 6px;
 }
