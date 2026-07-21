@@ -70,11 +70,11 @@ def test_family_controls_separate_loop_delay_and_grain_timing():
     glitch = microcosm_controls({**base, "engine": "glitch"})
     multidelay = microcosm_controls({**base, "engine": "multidelay"})
 
-    assert microloop["interval_seconds"] > granules["interval_seconds"] * 1.8
-    assert microloop["event_seconds"] > granules["event_seconds"] * 1.5
+    assert microloop["interval_seconds"] > granules["interval_seconds"] * 3.0
+    assert microloop["event_seconds"] > granules["event_seconds"] * 3.0
     assert glitch["event_seconds"] < granules["event_seconds"]
-    assert multidelay["interval_seconds"] > granules["interval_seconds"] * 2.2
-    assert multidelay["delay_base_seconds"] > granules["event_seconds"] * 5.0
+    assert multidelay["interval_seconds"] > granules["interval_seconds"] * 3.2
+    assert multidelay["delay_base_seconds"] > granules["event_seconds"] * 7.0
 
 
 def test_microloop_controls_are_slow_loops_not_glitch_stutters():
@@ -89,8 +89,8 @@ def test_microloop_controls_are_slow_loops_not_glitch_stutters():
     glitch = microcosm_controls({**base, "engine": "glitch"})
 
     assert microloop["interval_seconds"] >= glitch["interval_seconds"] * 3.5
-    assert microloop["event_seconds"] >= glitch["event_seconds"] * 4.5
-    assert microloop["event_seconds"] >= 0.6
+    assert microloop["event_seconds"] >= glitch["event_seconds"] * 6.0
+    assert microloop["event_seconds"] >= 0.85
 
 
 def test_microloop_patch_column_controls_octave_spread():
@@ -98,9 +98,9 @@ def test_microloop_patch_column_controls_octave_spread():
     gentle = microcosm_controls({**base, "patch_col": 0})
     dramatic = microcosm_controls({**base, "patch_col": 4})
 
-    assert gentle["pitch_ratios"] == (0.5, 1.0)
-    assert dramatic["pitch_ratios"] == (0.5, 1.0, 2.0, 4.0)
-    assert set(dramatic["pitch_ratios"]).issubset({0.5, 1.0, 2.0, 4.0})
+    assert gentle["pitch_ratios"] == (0.25, 0.5, 1.0)
+    assert dramatic["pitch_ratios"] == (0.25, 0.5, 1.0, 2.0, 4.0)
+    assert set(dramatic["pitch_ratios"]).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
 
 
 def test_microloop_patch_column_five_emphasizes_octave_down():
@@ -108,9 +108,10 @@ def test_microloop_patch_column_five_emphasizes_octave_down():
     controls = microcosm_controls({**base, "patch_col": 4})
     weights = dict(zip(controls["pitch_ratios"], controls["pitch_weights"]))
 
+    assert weights[0.25] > weights[2.0]
     assert weights[0.5] > weights[1.0]
     assert weights[0.5] > weights[2.0]
-    assert controls["octave_down_gain"] > 1.0
+    assert controls["octave_down_gain"] >= 1.35
 
 
 def test_pitch_modifying_microcosm_families_emphasize_lower_octaves():
@@ -123,7 +124,7 @@ def test_pitch_modifying_microcosm_families_emphasize_lower_octaves():
 
         if 0.5 in weights and 2.0 in weights:
             assert weights[0.5] > weights[2.0]
-        assert controls["octave_down_gain"] > 1.0
+        assert controls["octave_down_gain"] >= 1.25
 
 
 def test_microloop_pitch_ratios_and_weights_match_for_all_patch_columns():
@@ -139,14 +140,14 @@ def test_microloop_uses_octave_ratios_only():
 
     for col in range(5):
         controls = microcosm_controls({**base, "patch_col": col})
-        assert set(controls["pitch_ratios"]).issubset({0.5, 1.0, 2.0, 4.0})
+        assert set(controls["pitch_ratios"]).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
 
 
 def test_glitch_controls_emphasize_octave_pitch_variation():
     layer = _layer(1, engine="glitch", hue=0.99, sat=0.8, val=1.0, bpm=120.0)
     controls = microcosm_controls(layer)
 
-    assert controls["pitch_ratios"] == (0.5, 1.0, 2.0, 4.0)
+    assert controls["pitch_ratios"] == (0.25, 0.5, 1.0, 2.0, 4.0)
 
 
 def test_granules_use_longer_grain_windows_than_glitch():
@@ -154,8 +155,19 @@ def test_granules_use_longer_grain_windows_than_glitch():
     granules = microcosm_controls({**base, "engine": "granules"})
     glitch = microcosm_controls({**base, "engine": "glitch"})
 
-    assert granules["grain_seconds"] >= 0.18
-    assert granules["grain_seconds"] > glitch["grain_seconds"] * 2.0
+    assert granules["grain_seconds"] >= 0.28
+    assert granules["grain_seconds"] > glitch["grain_seconds"] * 3.0
+
+
+def test_microcosm_families_have_distinct_time_roles():
+    base = {"id": 1, "hue": 0.04, "sat": 0.85, "val": 1.0, "bpm": 95.0}
+    microloop = microcosm_controls({**base, "engine": "microloop"})
+    granules = microcosm_controls({**base, "engine": "granules"})
+    multidelay = microcosm_controls({**base, "engine": "multidelay"})
+
+    assert microloop["event_seconds"] > granules["grain_seconds"] * 2.3
+    assert multidelay["delay_base_seconds"] > granules["grain_seconds"] * 3.0
+    assert multidelay["event_seconds"] < microloop["event_seconds"] * 0.55
 
 
 def test_manual_variant_names_are_available_by_family():
@@ -225,7 +237,7 @@ def test_microloop_jump_uses_discrete_octave_reads_not_ratio_glide():
 
     assert proc.curve_reads == 0
     assert proc.ratio_reads
-    assert set(proc.ratio_reads).issubset({0.5, 1.0, 2.0, 4.0})
+    assert set(proc.ratio_reads).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
 
 
 def test_variants_within_family_have_distinct_source_rearrangements():
@@ -302,10 +314,12 @@ def test_many_layers_are_sparse_and_bounded():
         [np.sqrt(np.mean(total[i * win:(i + 1) * win] ** 2)) for i in range(n_win)]
     )
     active = env > max(1e-9, env.max() * 0.08)
+    total_rms = float(np.sqrt(np.mean(total**2)))
 
     assert active.mean() < 0.78
-    assert float(np.sqrt(np.mean(total**2))) < 0.12
-    assert np.max(np.abs(total)) < 0.8
+    assert total_rms > 0.06
+    assert total_rms < 0.28
+    assert np.max(np.abs(total)) < 0.95
 
 
 def test_stacked_layers_cap_event_bursts_per_block():

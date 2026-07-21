@@ -6,6 +6,12 @@ from modulation import soft_clip
 SAMPLE_RATE_DEFAULT = 44100
 AMPLITUDE_FOCUS_BASE_HZ = 1200.0
 AMPLITUDE_FOCUS_SPAN_OCTAVES = 2.0
+DEFAULT_TAPE_COLUMNS = {
+    "wow": 1.0,
+    "flutter": 1.0,
+    "tone": 0.0,
+    "dropout": 0.0,
+}
 
 
 def amplitude_focus_controls(hue, sat, val, bpm):
@@ -20,6 +26,36 @@ def amplitude_focus_controls(hue, sat, val, bpm):
         "smoothing_hz": 0.8 + 10.0 * bpm_norm + 8.0 * sat,
         "depth_scale": val,
     }
+
+
+def tape_column_controls(layers):
+    controls = dict(DEFAULT_TAPE_COLUMNS)
+    if not layers:
+        return controls
+
+    for layer in layers:
+        strength = 0.45 + 0.55 * val_to_unit(layer["val"])
+        sat = 0.55 + 0.45 * sat_to_unit(layer["sat"])
+        col = int(clamp(layer.get("patch_col", 0), 0, 4))
+        if col == 0:
+            controls["wow"] += 1.25 * strength
+        elif col == 1:
+            controls["flutter"] += 1.35 * strength
+        elif col == 2:
+            controls["tone"] += 0.38 * strength * sat * hue_to_bipolar(
+                layer.get("hue", 0.5)
+            )
+        elif col == 3:
+            controls["dropout"] += 0.55 * strength
+        else:
+            controls["wow"] += 0.35 * strength
+            controls["flutter"] += 0.35 * strength
+
+    controls["wow"] = min(3.0, controls["wow"])
+    controls["flutter"] = min(3.2, controls["flutter"])
+    controls["tone"] = clamp(controls["tone"], -0.45, 0.45)
+    controls["dropout"] = min(0.75, controls["dropout"])
+    return controls
 
 
 class TapeModulator:
@@ -39,6 +75,8 @@ class TapeModulator:
         self._flutter_phase = 0.0
         self._jitter_state = 0.0
         self._bloom_state = 0.0
+        self._dropout_state = 0.0
+        self._tone_low_state = 0.0
         # Most recent control signals from process(), for visualization:
         # last_warble_signal is the depth-scaled pitch deviation (rate - 1),
         # last_gain is the bloom amplitude multiplier (centered on 1.0).
@@ -76,6 +114,23 @@ class TapeModulator:
         self._bloom_state = prev
         return np.clip(out, -1.0, 1.0)
 
+    def _tone_color(self, samples, tone):
+        tone = clamp(tone, -0.45, 0.45)
+        if abs(tone) < 1e-9:
+            return samples
+        alpha = self._one_pole_alpha(1400.0)
+        low = np.empty(len(samples), dtype=np.float64)
+        prev = self._tone_low_state
+        for i, sample in enumerate(samples):
+            prev = alpha * prev + (1.0 - alpha) * sample
+            low[i] = prev
+        self._tone_low_state = prev
+        high = samples - low
+        if tone < 0.0:
+            amount = abs(tone)
+            return samples + 0.16 * amount * low - 0.10 * amount * high
+        return samples - 0.08 * tone * low + 0.14 * tone * high
+
     def process(
         self,
         loop_array,
@@ -86,6 +141,7 @@ class TapeModulator:
         hue=0.0,
         sat=0.5,
         val=1.0,
+        tape_controls=None,
     ):
         loop_len = len(loop_array)
         t = np.arange(frames) / self.samplerate
@@ -108,7 +164,13 @@ class TapeModulator:
             self._flutter_phase + 2.0 * np.pi * flutter_rate * frames / self.samplerate
         ) % (2.0 * np.pi)
 
-        raw_warble = 0.6 * wow + 0.3 * flutter + 0.1 * jitter
+        tape_controls = DEFAULT_TAPE_COLUMNS if tape_controls is None else tape_controls
+        raw_warble = (
+            0.6 * tape_controls["wow"] * wow
+            + 0.3 * tape_controls["flutter"] * flutter
+            + 0.1 * jitter
+        )
+        raw_warble /= max(1.0, 0.6 * tape_controls["wow"] + 0.3 * tape_controls["flutter"])
         rate_per_sample = 1.0 + warble_depth * raw_warble
 
         # Exclusive prefix sum: the i-th output sample reads from the
@@ -130,7 +192,17 @@ class TapeModulator:
             0.05,
             1.95,
         )
+        if tape_controls["dropout"] > 1e-9:
+            dropout_noise, self._dropout_state = self._smoothed_noise(
+                frames,
+                self._dropout_state,
+                cutoff_hz=0.5 + 0.4 * rate_hz,
+            )
+            dropout = np.clip((1.0 - dropout_noise) * 0.5, 0.0, 1.0)
+            gain *= 1.0 - tape_controls["dropout"] * dropout
         output = output * gain
+
+        output = self._tone_color(output, tape_controls["tone"])
 
         self.last_warble_signal = (warble_depth * raw_warble).astype(np.float32)
         self.last_gain = gain.astype(np.float32)

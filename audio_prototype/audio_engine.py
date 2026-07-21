@@ -13,7 +13,6 @@ from modulation import (
     RmsLimiter,
     combine_layers,
     hue_to_bipolar,
-    hue_to_unit,
     sat_to_unit,
     soft_clip,
     val_to_unit,
@@ -27,7 +26,7 @@ from spectral_processor import (
     analyze_frame,
     analyze_loop,
 )
-from tape_modulator import TapeModulator
+from tape_modulator import TapeModulator, tape_column_controls
 from wet_bus import WetBusManager
 
 VISUALIZER_BUFFER_SECONDS = 2.0
@@ -38,6 +37,8 @@ REVERB_DEFAULT_FEEDBACK = 0.84
 REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
 REVERB_TAIL_HOLD_BLOCKS = 220
+MAX_DENSITY_WET_BOOST = 0.18
+FULL_WET_BOOST_DENSITY = 20.0
 
 
 def bpm_to_reverb_feedback(bpm):
@@ -50,47 +51,47 @@ def val_to_reverb_cutoff(val):
     return 800.0 + 7000.0 * val_to_unit(val)
 
 
-def hue_to_reverb_style(hue):
-    hue = min(0.999999, hue_to_unit(hue))
-    return ("bright_room", "dark_medium", "large_hall", "ambient")[int(hue * 4)]
+def effective_wet_dry_mix(wet_dry, wet_voice_count, reverb_layer_count):
+    wet_dry = float(np.clip(wet_dry, 0.0, 1.0))
+    if wet_dry <= 0.0 or wet_dry >= 1.0:
+        return wet_dry
+    reverb_density = 0.5 * reverb_layer_count if wet_voice_count > 0 else 0.0
+    density = max(0.0, wet_voice_count + reverb_density)
+    boost = MAX_DENSITY_WET_BOOST * min(1.0, density / FULL_WET_BOOST_DENSITY)
+    return min(1.0, wet_dry + boost)
 
 
 def reverb_layer_controls(layers):
     if not layers:
         return {
-            "style": "bright_room",
+            "style": "wash",
             "size": 0.35,
             "diffusion": 0.45,
             "send": 0.0,
             "val": 0.0,
             "bpm": 120.0,
-            "wash": False,
         }
 
-    wash = any(l.get("patch_col") == 4 for l in layers)
     n = len(layers)
     weights = np.array(
         [0.2 + l["sat"] + l["val"] for l in layers],
         dtype=np.float64,
     )
-    hues = np.array([l["hue"] for l in layers], dtype=np.float64)
     sats = np.array([l["sat"] for l in layers], dtype=np.float64)
     vals = np.array([l["val"] for l in layers], dtype=np.float64)
     bpms = np.array([l["bpm"] for l in layers], dtype=np.float64)
-    hue = float(np.average(hues, weights=weights))
     sat = float(np.average([sat_to_unit(s) for s in sats], weights=weights))
     val = float(np.average([val_to_unit(v) for v in vals], weights=weights))
     bpm = float(np.average(bpms, weights=weights))
     density = min(1.0, np.sqrt(n / 6.0))
 
     return {
-        "style": "wash" if wash else hue_to_reverb_style(hue),
-        "size": min(1.0, (0.48 if wash else 0.22) + 0.38 * sat + 0.30 * density),
-        "diffusion": min(1.0, (0.55 if wash else 0.28) + 0.30 * sat + 0.25 * density),
-        "send": min(1.0, (0.18 if wash else 0.10) + 0.45 * val + 0.55 * density),
+        "style": "wash",
+        "size": min(1.0, 0.48 + 0.38 * sat + 0.30 * density),
+        "diffusion": min(1.0, 0.55 + 0.30 * sat + 0.25 * density),
+        "send": min(1.0, 0.18 + 0.45 * val + 0.55 * density),
         "val": val,
         "bpm": bpm,
-        "wash": wash,
     }
 
 
@@ -235,6 +236,7 @@ class AudioEngine:
 
         if mode == "tape":
             combined = combine_layers(layers)
+            tape_controls = tape_column_controls(layers)
             avg_hue = sum(l["hue"] for l in layers) / len(layers) if layers else 0.0
             avg_sat = sum(l["sat"] for l in layers) / len(layers) if layers else 0.5
             avg_val = sum(l["val"] for l in layers) / len(layers) if layers else 1.0
@@ -247,6 +249,7 @@ class AudioEngine:
                 hue=avg_hue,
                 sat=avg_sat,
                 val=avg_val,
+                tape_controls=tape_controls,
             )
             self.warble_buffer.write(self.modulator.last_warble_signal)
             self.bloom_buffer.write(self.modulator.last_gain - 1.0)
@@ -263,6 +266,7 @@ class AudioEngine:
                 ]
                 reverb_layers = [l for l in layers if l["engine"] == "reverb"]
                 combined = combine_layers(tape_layers)
+                tape_controls = tape_column_controls(tape_layers)
                 avg_hue = (
                     sum(l["hue"] for l in tape_layers) / len(tape_layers)
                     if tape_layers
@@ -281,7 +285,7 @@ class AudioEngine:
                 # Zero-depth tape processing is an exact dry passthrough,
                 # so the base stays continuous when no tape layers exist.
                 source_pos = self.modulator._read_pos
-                if layers:
+                if tape_layers:
                     base = self.modulator.process(
                         self.loop_array,
                         frames,
@@ -291,10 +295,13 @@ class AudioEngine:
                         hue=avg_hue,
                         sat=avg_sat,
                         val=avg_val,
+                        tape_controls=tape_controls,
                     )
                 else:
                     base = self._next_dry(frames)
                     self.modulator._read_pos = self._dry_pos
+                    self.modulator.last_warble_signal = zeros
+                    self.modulator.last_gain = np.ones(frames, dtype=np.float32)
             else:
                 spec_layers = layers if mode == "spectral" else []
                 gran_layers = layers if mode == "granular" else []
@@ -349,12 +356,8 @@ class AudioEngine:
                 n_rv = len(reverb_layers)
                 rv_controls = reverb_layer_controls(reverb_layers)
                 rv_val = rv_controls["val"]
-                if rv_controls["wash"]:
-                    target_fb = min(0.994, max(0.955, 0.996 - 0.00012 * rv_controls["bpm"]))
-                    target_cut = min(4800.0, 700.0 + 4200.0 * rv_val)
-                else:
-                    target_fb = bpm_to_reverb_feedback(rv_controls["bpm"])
-                    target_cut = val_to_reverb_cutoff(rv_val)
+                target_fb = min(0.994, max(0.955, 0.996 - 0.00012 * rv_controls["bpm"]))
+                target_cut = min(4800.0, 700.0 + 4200.0 * rv_val)
             else:
                 n_rv = 0
                 rv_controls = reverb_layer_controls([])
@@ -381,22 +384,25 @@ class AudioEngine:
                 wet_voice_count=n_wet,
                 reverb_layer_count=n_rv,
             )
-            if not reverb_layers:
-                source_reverb_send = zeros
+            if reverb_layers:
+                reverb_input = managed_wet_raw
             else:
-                rv_send = min(1.0, rv_controls["send"] + entry.engine_gain("reverb"))
-                source_reverb_send = (rv_send * base).astype(np.float32)
-            reverb_input = managed_wet_raw + source_reverb_send
+                reverb_input = zeros
             if float(np.max(np.abs(reverb_input))) > 1e-7:
                 self._reverb_tail_blocks = REVERB_TAIL_HOLD_BLOCKS
             elif self._reverb_tail_blocks > 0:
                 self._reverb_tail_blocks -= 1
+            reverb_wet = (
+                self.reverb.process(reverb_input)
+                if reverb_layers or self._reverb_tail_blocks > 0
+                else zeros
+            )
             wet = self.wet_limiter.process(
                 managed_wet_raw
-                + self.reverb_mix * self.reverb.process(reverb_input)
+                + self.reverb_mix * reverb_wet
             )
             # Wet/dry balance: 0 = dry only, 0.5 = both full, 1 = wet only.
-            mix = self.wet_dry
+            mix = effective_wet_dry_mix(self.wet_dry, n_wet, n_rv)
             dry_gain = min(1.0, 2.0 * (1.0 - mix))
             wet_gain = min(1.0, 2.0 * mix)
             block = soft_clip(dry_gain * base + wet_gain * wet).astype(
@@ -422,8 +428,8 @@ class AudioEngine:
             return 0.0
 
         if any(l["engine"] == "glitch" for l in pan_layers):
-            if self._stereo_rng.random() < 0.42:
-                self._glitch_pan = float(self._stereo_rng.choice((-0.95, -0.65, 0.65, 0.95)))
+            if self._stereo_rng.random() < 0.16:
+                self._glitch_pan = float(self._stereo_rng.choice((-0.62, -0.38, 0.38, 0.62)))
             return self._glitch_pan
 
         weighted = sum(
@@ -441,14 +447,13 @@ class AudioEngine:
             return np.column_stack([mono, mono]).astype(np.float32)
 
         wet = self.wet_buffer.read_latest(frames)
-        raw_side = 0.42 * pan * wet
-        side = np.empty(frames, dtype=np.float64)
-        state = self._stereo_side_state
-        alpha = 0.08
-        for i, sample in enumerate(raw_side):
-            state += alpha * (sample - state)
-            side[i] = state
-        self._stereo_side_state = state
+        has_glitch = any(l["engine"] == "glitch" for l in layers)
+        side_width = 0.34 if has_glitch else 0.30
+        target_gain = side_width * pan
+        start_gain = self._stereo_side_state
+        ramp = np.linspace(start_gain, target_gain, frames, dtype=np.float64)
+        side = ramp * wet
+        self._stereo_side_state = float(target_gain)
         left = soft_clip(mono - side)
         right = soft_clip(mono + side)
         return np.column_stack([left, right]).astype(np.float32)

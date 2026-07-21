@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import modulation as mod
-from audio_engine import AudioEngine
+from audio_engine import AudioEngine, effective_wet_dry_mix
 from frequency_mod_processor import FrequencyModProcessor
 from spectral_processor import HOP_SIZE
 
@@ -259,6 +259,23 @@ def test_mixed_mode_routes_microcosm_families_to_wet_bus():
     assert np.max(np.abs(wet)) < 1.0
 
 
+def test_wet_effects_do_not_enter_reverb_without_reverb_patch():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("mixed")
+    engine.registry.add(hue=0.03, sat=0.6, val=1.0, bpm=100, engine="glitch")
+
+    def fail_reverb(_x):
+        raise AssertionError("wet effects should not enter reverb without a patch")
+
+    engine.reverb.process = fail_reverb
+    for _ in range(80):
+        engine.generate_block(1024)
+
+    wet = engine.wet_buffer.read_latest(1024 * 20)
+    assert not np.allclose(wet, np.zeros_like(wet))
+
+
 def test_stereo_block_pans_glitch_wet_events():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
@@ -284,6 +301,32 @@ def test_stereo_glitch_pan_is_smoothed():
     side = stereo[:, 1] - stereo[:, 0]
 
     assert np.max(np.abs(np.diff(side))) < 0.14
+
+
+def test_glitch_stereo_stays_subtle_and_bounded():
+    def side_rms(engine_name):
+        engine = AudioEngine(seed=1)
+        engine.load_loop(str(SAMPLE_LOOP))
+        engine.set_mode("mixed")
+        engine.wet_dry = 1.0
+        engine.registry.add(hue=0.7, sat=0.8, val=1.0, bpm=95, engine=engine_name)
+        stereo = np.concatenate(
+            [engine.generate_stereo_block(1024) for _ in range(140)]
+        )
+        side = stereo[:, 1] - stereo[:, 0]
+        return (
+            float(np.sqrt(np.mean(side**2))),
+            float(np.max(np.abs(stereo))),
+            float(np.max(np.abs(np.diff(side)))),
+        )
+
+    glitch_side, glitch_peak, glitch_step = side_rms("glitch")
+    _microloop_side, _microloop_peak, _microloop_step = side_rms("microloop")
+
+    assert glitch_side > 0.005
+    assert glitch_side < 0.04
+    assert glitch_peak < 0.92
+    assert glitch_step < 0.01
 
 
 def test_audio_callback_outputs_stereo(monkeypatch):
@@ -365,7 +408,7 @@ def test_wet_events_do_not_duck_dry_source():
     np.testing.assert_allclose(with_wet_event, quiet, atol=1e-6)
 
 
-def test_reverb_adds_tail_to_wet():
+def test_wet_effect_without_reverb_patch_has_no_reverb_tail():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     engine.set_mode("granular")
@@ -374,11 +417,11 @@ def test_reverb_adds_tail_to_wet():
     for _ in range(40):
         engine.generate_block(1024)
     engine.registry.remove(layer_id)
-    # with the layer gone the raw wet is silent, but the reverb tail rings on
-    tail = np.concatenate([engine.generate_block(1024) for _ in range(3)])
-    dry = None  # tail block includes dry loop; compare against wet buffer instead
+    # Without an explicit reverb patch, raw wet effects should not leave a
+    # shared room tail after the effect layer is removed.
+    np.concatenate([engine.generate_block(1024) for _ in range(3)])
     wet_tail = engine.wet_buffer.read_latest(1024 * 3)
-    assert not np.allclose(wet_tail, np.zeros_like(wet_tail))
+    np.testing.assert_allclose(wet_tail, np.zeros_like(wet_tail), atol=1e-7)
 
 
 def test_pause_resume_state_without_stream():
@@ -421,6 +464,30 @@ def test_start_does_not_play_when_initially_paused(monkeypatch):
 def test_wet_dry_default_is_balanced():
     engine = AudioEngine(seed=1)
     assert engine.wet_dry == pytest.approx(0.5)
+
+
+def test_effective_wet_dry_mix_increases_with_effect_density():
+    sparse = effective_wet_dry_mix(0.5, wet_voice_count=1, reverb_layer_count=0)
+    dense = effective_wet_dry_mix(0.5, wet_voice_count=20, reverb_layer_count=0)
+    with_reverb = effective_wet_dry_mix(
+        0.5,
+        wet_voice_count=10,
+        reverb_layer_count=4,
+    )
+
+    assert sparse > 0.5
+    assert dense > sparse
+    assert with_reverb > sparse
+    assert dense == pytest.approx(0.68)
+
+
+def test_effective_wet_dry_mix_preserves_user_endpoints():
+    assert effective_wet_dry_mix(0.0, 20, 10) == 0.0
+    assert effective_wet_dry_mix(1.0, 20, 10) == 1.0
+
+
+def test_effective_wet_dry_mix_ignores_reverb_density_without_wet_effects():
+    assert effective_wet_dry_mix(0.5, wet_voice_count=0, reverb_layer_count=4) == 0.5
 
 
 def test_wet_dry_zero_mutes_wet():
@@ -485,7 +552,7 @@ def test_reverb_character_follows_reverb_layer_brightness():
     assert settled_cutoff(0.3) < settled_cutoff(1.0)
 
 
-def test_reverb_color_selects_space_style():
+def test_reverb_uses_single_space_style_across_color():
     def settled_style(hue):
         engine = AudioEngine(seed=1)
         engine.load_loop(str(SAMPLE_LOOP))
@@ -500,14 +567,32 @@ def test_reverb_color_selects_space_style():
             engine.generate_block(1024)
         return engine.reverb.space_style
 
-    hue_span = mod.FINGER_HUE_MAX - mod.FINGER_HUE_MIN
-    assert settled_style(mod.FINGER_HUE_MIN + hue_span * 0.125) == "bright_room"
-    assert settled_style(mod.FINGER_HUE_MIN + hue_span * 0.375) == "dark_medium"
-    assert settled_style(mod.FINGER_HUE_MIN + hue_span * 0.625) == "large_hall"
-    assert settled_style(mod.FINGER_HUE_MIN + hue_span * 0.875) == "ambient"
+    assert settled_style(mod.FINGER_HUE_MIN) == "wash"
+    assert settled_style(mod.FINGER_HUE_MAX) == "wash"
 
 
-def test_reverb_patch_column_five_selects_wash_style():
+def test_reverb_only_mixed_mode_skips_tape_processing():
+    engine = AudioEngine(seed=1)
+    engine.load_loop(str(SAMPLE_LOOP))
+    engine.set_mode("mixed")
+    engine.registry.add(
+        hue=mod.FINGER_HUE_MAX,
+        sat=mod.FINGER_SAT_MAX,
+        val=mod.FINGER_VAL_MAX,
+        bpm=80,
+        engine="reverb",
+    )
+
+    def fail_tape(*_args, **_kwargs):
+        raise AssertionError("reverb-only routing should not process tape")
+
+    engine.modulator.process = fail_tape
+    block = engine.generate_block(512)
+
+    assert block.shape == (512,)
+
+
+def test_reverb_patch_column_five_uses_single_wash_style():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     source_id = engine.registry.add_source(
@@ -531,10 +616,45 @@ def test_reverb_patch_column_five_selects_wash_style():
     assert engine.reverb._lowpass.cutoff_hz < 5000.0
 
 
+def test_mixed_mode_tape_patch_columns_shape_distinct_controls():
+    def render(col):
+        engine = AudioEngine(seed=1)
+        engine.load_loop(str(SAMPLE_LOOP))
+        engine.set_mode("mixed")
+        source_id = engine.registry.add_source(
+            hue=mod.FINGER_HUE_MAX,
+            sat=mod.FINGER_SAT_MAX,
+            val=mod.FINGER_VAL_MAX,
+            bpm=120,
+        )
+        engine.registry.connect_source(source_id, engine="tape", row=4, col=col)
+        block = engine.generate_block(4096)
+        return engine, block
+
+    wow_engine, _wow = render(0)
+    flutter_engine, _flutter = render(1)
+    tone_engine, tone = render(2)
+    dropout_engine, dropout = render(3)
+
+    assert not np.allclose(
+        wow_engine.modulator.last_warble_signal,
+        flutter_engine.modulator.last_warble_signal,
+    )
+    assert np.std(flutter_engine.modulator.last_warble_signal) > np.std(
+        wow_engine.modulator.last_warble_signal
+    )
+    assert np.max(np.abs(tone)) < 0.98
+    assert np.mean(np.abs(tone - dropout)) > 1e-4
+    assert np.mean(dropout_engine.modulator.last_gain) < np.mean(
+        tone_engine.modulator.last_gain
+    )
+
+
 def test_multiple_reverb_layers_expand_space_and_send():
     def settle(layers):
         engine = AudioEngine(seed=1)
         engine.load_loop(str(SAMPLE_LOOP))
+        engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=90, engine="glitch")
         for layer in layers:
             engine.registry.add(**layer, engine="reverb")
         for _ in range(80):
@@ -560,26 +680,25 @@ def test_multiple_reverb_layers_expand_space_and_send():
 
     assert many_size > one_size
     assert many_diffusion > one_diffusion
-    assert many_wet > one_wet * 1.2
+    assert many_wet > one_wet * 1.05
 
 
-def test_reverb_layers_add_wet_tail_without_ducking_dry():
+def test_reverb_only_layer_does_not_add_source_to_wet_side():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=120, engine="reverb")
-    for _ in range(12):
+    for _ in range(24):
         block = engine.generate_block(512)
     start = engine._dry_pos - 512
     dry = engine.loop_array[(start + np.arange(512)) % len(engine.loop_array)]
-    # a reverb-only layer should not duck the dry/base path, but its wet
-    # tail is audible after the room predelay and in the wet buffer.
-    assert np.max(np.abs(block - dry)) > 0.0
-    assert not np.allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
+    np.testing.assert_allclose(block, dry, atol=1e-6)
+    np.testing.assert_allclose(engine.wet_buffer.read_latest(512), np.zeros(512))
 
 
-def test_reverb_layer_adds_source_tail_to_wet_side():
+def test_reverb_layer_adds_effect_tail_to_wet_side():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=90, engine="glitch")
     engine.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=120, engine="reverb")
 
     for _ in range(20):
@@ -589,32 +708,25 @@ def test_reverb_layer_adds_source_tail_to_wet_side():
     assert not np.allclose(wet, np.zeros_like(wet))
 
 
-def test_full_wet_reverb_layer_is_not_dry_like():
+def test_full_wet_reverb_only_layer_is_silent_without_effect_send():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     engine.wet_dry = 1.0
     engine.registry.add(hue=0.92, sat=1.0, val=1.0, bpm=45, engine="reverb")
 
-    dry_blocks = []
     wet_blocks = []
     for _ in range(80):
-        start = engine._dry_pos
-        dry_blocks.append(
-            engine.loop_array[(start + np.arange(1024)) % len(engine.loop_array)]
-        )
         wet_blocks.append(engine.generate_block(1024))
 
-    dry = np.concatenate(dry_blocks[-30:])
     wet = np.concatenate(wet_blocks[-30:])
-    corr = np.corrcoef(dry, wet)[0, 1]
-
-    assert abs(corr) < 0.75
+    np.testing.assert_allclose(wet, np.zeros_like(wet), atol=1e-6)
 
 
-def test_reverb_source_send_follows_color_and_saturation_space():
+def test_reverb_effect_send_follows_color_and_saturation_space():
     def render(hue, sat):
         engine = AudioEngine(seed=1)
         engine.load_loop(str(SAMPLE_LOOP))
+        engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=90, engine="glitch")
         engine.registry.add(hue=hue, sat=sat, val=0.75, bpm=120, engine="reverb")
         for _ in range(20):
             engine.generate_block(1024)
@@ -625,9 +737,10 @@ def test_reverb_source_send_follows_color_and_saturation_space():
     assert not np.allclose(low_color, high_color)
 
 
-def test_reverb_source_send_follows_average_value():
+def test_reverb_effect_send_follows_average_value():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
+    engine.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=90, engine="glitch")
     engine.registry.add(hue=0.0, sat=0.5, val=0.2, bpm=120, engine="reverb")
     for _ in range(20):
         engine.generate_block(1024)
@@ -635,6 +748,7 @@ def test_reverb_source_send_follows_average_value():
 
     engine2 = AudioEngine(seed=1)
     engine2.load_loop(str(SAMPLE_LOOP))
+    engine2.registry.add(hue=0.03, sat=0.7, val=1.0, bpm=90, engine="glitch")
     engine2.registry.add(hue=0.0, sat=0.5, val=1.0, bpm=120, engine="reverb")
     for _ in range(20):
         engine2.generate_block(1024)
@@ -715,7 +829,7 @@ def test_many_layers_with_feedback_stay_bounded():
     # the limiter has to become the primary sound-shaping stage
     assert wet_rms < 0.5
     controls = engine.wet_bus.controls(wet_voice_count=20, reverb_layer_count=0)
-    assert controls["wet_gain"] < 0.6
+    assert controls["wet_gain"] == pytest.approx(1.0)
 
 
 def test_live_analysis_flag_does_not_change_frequency_mod_behavior():
@@ -749,7 +863,7 @@ def _band_rms(x, samplerate, low_hz, high_hz):
     return float(np.sqrt(np.mean(np.abs(spectrum[mask]) ** 2)))
 
 
-def test_dense_wet_layers_trigger_wet_bus_gain_reduction():
+def test_dense_wet_layers_do_not_trigger_wet_bus_gain_reduction():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     for _ in range(20):
@@ -759,11 +873,11 @@ def test_dense_wet_layers_trigger_wet_bus_gain_reduction():
         engine.generate_block(1024)
 
     controls = engine.wet_bus.controls(wet_voice_count=20, reverb_layer_count=0)
-    assert controls["wet_gain"] < 0.6
+    assert controls["wet_gain"] == pytest.approx(1.0)
     assert engine.wet_limiter.gain > 0.2
 
 
-def test_dense_wet_bus_reduces_low_mid_energy():
+def test_dense_wet_bus_does_not_reduce_low_mid_energy():
     engine = AudioEngine(seed=1)
     engine.load_loop(str(SAMPLE_LOOP))
     low_mid = np.sin(2 * np.pi * 160 * np.arange(8192) / engine.samplerate).astype(
@@ -782,7 +896,7 @@ def test_dense_wet_bus_reduces_low_mid_energy():
 
     sparse_low = _band_rms(shaped_sparse, engine.samplerate, 80, 300)
     dense_low = _band_rms(shaped_dense, engine.samplerate, 80, 300)
-    assert dense_low < sparse_low * 0.7
+    assert dense_low == pytest.approx(sparse_low, rel=0.02)
 
 
 def test_reverb_density_tightens_feedback_and_cutoff():

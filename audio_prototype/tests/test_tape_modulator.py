@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import modulation as mod
-from tape_modulator import TapeModulator, amplitude_focus_controls
+from tape_modulator import TapeModulator, amplitude_focus_controls, tape_column_controls
 
 
 def test_process_returns_requested_length():
@@ -142,3 +142,16 @@ def test_source_amplitude_contour_drives_gain():
     quiet_gain = float(np.mean(tm.last_gain[:256]))
     loud_gain = float(np.mean(tm.last_gain[256:512]))
     assert abs(loud_gain - quiet_gain) > 0.05
+
+
+def test_patch_columns_emphasize_distinct_tape_controls():
+    wow = tape_column_controls([{"patch_col": 0, "sat": 1.0, "val": 1.0}])
+    flutter = tape_column_controls([{"patch_col": 1, "sat": 1.0, "val": 1.0}])
+    tone = tape_column_controls([{"patch_col": 2, "sat": 1.0, "val": 1.0}])
+    dropout = tape_column_controls([{"patch_col": 3, "sat": 1.0, "val": 1.0}])
+
+    assert wow["wow"] > wow["flutter"]
+    assert flutter["flutter"] > flutter["wow"]
+    assert abs(tone["tone"]) > abs(wow["tone"])
+    assert "saturation" not in tone
+    assert dropout["dropout"] > wow["dropout"]

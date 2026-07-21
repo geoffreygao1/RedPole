@@ -14,11 +14,11 @@ def density_controls(wet_voice_count, reverb_layer_count):
 
     return {
         "density": normalized,
-        "wet_gain": 1.0 / (1.0 + 0.034 * wet_voice_count),
+        "wet_gain": 1.0,
         "feedback_trim": 0.12 * normalized,
         "cutoff_scale": 1.0 - 0.45 * normalized,
-        "highpass_hz": 35.0 + 145.0 * normalized,
-        "low_mid_gain": 1.0 - 0.35 * normalized,
+        "highpass_hz": 35.0,
+        "low_mid_gain": 1.0,
     }
 
 
@@ -82,11 +82,4 @@ class WetBusManager:
     def process(self, wet, wet_voice_count, reverb_layer_count):
         wet = np.asarray(wet, dtype=np.float64)
         controls = self.controls(wet_voice_count, reverb_layer_count)
-        if controls["density"] <= 0.0:
-            return wet.astype(np.float32)
-        self._highpass.set_cutoff(controls["highpass_hz"])
-
-        highpassed = self._highpass.process(wet)
-        low_mid = self._low_mid.process(highpassed)
-        cleaned = highpassed - (1.0 - controls["low_mid_gain"]) * low_mid
-        return (controls["wet_gain"] * cleaned).astype(np.float32)
+        return (controls["wet_gain"] * wet).astype(np.float32)

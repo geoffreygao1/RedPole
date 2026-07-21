@@ -27,14 +27,15 @@ def test_density_controls_are_neutral_with_no_density():
 def test_density_controls_tighten_as_layers_accumulate():
     light = density_controls(wet_voice_count=1, reverb_layer_count=0)
     dense = density_controls(wet_voice_count=20, reverb_layer_count=4)
-    assert dense["wet_gain"] < light["wet_gain"]
+    assert dense["density"] > light["density"]
+    assert dense["wet_gain"] == pytest.approx(1.0)
     assert dense["feedback_trim"] > light["feedback_trim"]
     assert dense["cutoff_scale"] < light["cutoff_scale"]
-    assert dense["highpass_hz"] > light["highpass_hz"]
-    assert dense["low_mid_gain"] < light["low_mid_gain"]
+    assert dense["highpass_hz"] == pytest.approx(35.0)
+    assert dense["low_mid_gain"] == pytest.approx(1.0)
 
 
-def test_tone_cleanup_reduces_low_frequency_more_than_presence_band():
+def test_wet_bus_process_has_no_patch_count_dampening():
     manager = WetBusManager(SR)
     low = _tone(120.0)
     presence = _tone(1800.0)
@@ -45,8 +46,8 @@ def test_tone_cleanup_reduces_low_frequency_more_than_presence_band():
         presence, wet_voice_count=20, reverb_layer_count=0
     )
 
-    assert _rms(low_out) < _rms(low) * 0.75
-    assert _rms(presence_out) > _rms(presence) * 0.55
+    np.testing.assert_allclose(low_out, low, atol=1e-6)
+    np.testing.assert_allclose(presence_out, presence, atol=1e-6)
 
 
 def test_process_is_neutral_for_zero_density_after_filter_settle():

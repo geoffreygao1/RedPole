@@ -41,7 +41,8 @@ RANDOM_BPM_MAX = 180.0
 PICKER_W = 220
 PICKER_H = 120
 PATCH_GRID_SIZE = 5
-PATCH_ROW_ENGINES = ("microloop", "granules", "glitch", "multidelay", "reverb")
+PATCH_ROW_ENGINES = ("microloop", "granules", "glitch", "multidelay", "tape")
+PATCH_TAPE_COL_LABELS = ("wow", "flutter", "tone", "dropout", "reverb")
 PATCH_COL_LABELS = ("I", "II", "III", "IV", "V")
 PATCH_CANVAS_W = 960
 PATCH_CANVAS_H = 440
@@ -50,9 +51,11 @@ PATCH_GRID_X = 560
 PATCH_GRID_Y = 70
 PATCH_CELL = 58
 PATCH_SOURCE_TOP = 70
-PATCH_SOURCE_COLUMN_SIZE = 8
-PATCH_SOURCE_COLUMN_GAP = 76
+PATCH_SOURCE_COLUMN_SIZE = PATCH_GRID_SIZE
+PATCH_SOURCE_COLUMN_GAP = PATCH_CELL
 PATCH_SOURCE_LIMIT = 25
+PATCH_EFFECT_JACK_RADIUS = 9
+PATCH_OUTPUT_JACK_RADIUS = 8
 
 
 def _picker_coords_to_hsv(x, y, w=PICKER_W, h=PICKER_H):
@@ -80,6 +83,8 @@ def _random_scan_values(rng=None):
 def _patch_cell_to_engine(row, col):
     if not (0 <= row < PATCH_GRID_SIZE and 0 <= col < PATCH_GRID_SIZE):
         return None
+    if row == 4 and col == 4:
+        return "reverb"
     return PATCH_ROW_ENGINES[row]
 
 
@@ -95,18 +100,30 @@ def _source_positions_for_sources(sources):
 
 
 def _patch_slot_positions():
-    usable_h = max(1, PATCH_CANVAS_H - PATCH_SOURCE_TOP - 24)
-    row_count = PATCH_SOURCE_COLUMN_SIZE
-    gap = usable_h / max(1, row_count - 1)
     positions = []
     for i in range(PATCH_SOURCE_LIMIT):
         col = i // PATCH_SOURCE_COLUMN_SIZE
         row = i % PATCH_SOURCE_COLUMN_SIZE
         positions.append((
             PATCH_SOURCE_X + col * PATCH_SOURCE_COLUMN_GAP,
-            PATCH_SOURCE_TOP + row * gap,
+            PATCH_SOURCE_TOP + row * PATCH_CELL,
         ))
     return positions
+
+
+def _patch_cell_center(row, col):
+    return (
+        PATCH_GRID_X + col * PATCH_CELL + PATCH_CELL / 2,
+        PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2,
+    )
+
+
+def _jack_bounds(x, y, radius):
+    return (x - radius, y - radius, x + radius, y + radius)
+
+
+def _patch_effect_jack_bounds(row, col):
+    return _jack_bounds(*_patch_cell_center(row, col), PATCH_EFFECT_JACK_RADIUS)
 
 
 def _patch_cable_points(x1, y1, x2, y2):
@@ -435,10 +452,7 @@ class RedPoleGUI:
         return _source_positions_for_sources(sources)
 
     def _cell_center(self, row, col):
-        return (
-            PATCH_GRID_X + col * PATCH_CELL + PATCH_CELL / 2,
-            PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2,
-        )
+        return _patch_cell_center(row, col)
 
     def _cell_at(self, x, y):
         col = int((x - PATCH_GRID_X) // PATCH_CELL)
@@ -482,6 +496,11 @@ class RedPoleGUI:
                 font=("TkDefaultFont", 9),
             )
             for col in range(PATCH_GRID_SIZE):
+                label = (
+                    PATCH_TAPE_COL_LABELS[col]
+                    if row == 4
+                    else PATCH_COL_LABELS[col]
+                )
                 x0 = PATCH_GRID_X + col * PATCH_CELL
                 y0 = PATCH_GRID_Y + row * PATCH_CELL
                 canvas.create_rectangle(
@@ -495,20 +514,23 @@ class RedPoleGUI:
                 )
                 canvas.create_text(
                     x0 + PATCH_CELL / 2,
-                    y0 + PATCH_CELL / 2,
-                    text=PATCH_COL_LABELS[col],
+                    y0 + 12,
+                    text=label,
                     fill="#808080",
                     font=("TkDefaultFont", 8),
+                )
+                canvas.create_oval(
+                    *_patch_effect_jack_bounds(row, col),
+                    outline="#8a8a8a",
+                    fill="#101010",
+                    width=2,
                 )
 
         positions = self._source_positions()
         sources = self.engine.registry.sources_snapshot()
         for slot, (sx, sy) in enumerate(_patch_slot_positions(), start=1):
             canvas.create_oval(
-                sx - 8,
-                sy - 8,
-                sx + 8,
-                sy + 8,
+                *_jack_bounds(sx, sy, PATCH_OUTPUT_JACK_RADIUS),
                 outline="#777777",
                 fill="#3a3a3a",
                 width=1,
@@ -536,10 +558,7 @@ class RedPoleGUI:
                     tags=(f"connection-{source_id}", "connection"),
                 )
             canvas.create_oval(
-                sx - 8,
-                sy - 8,
-                sx + 8,
-                sy + 8,
+                *_jack_bounds(sx, sy, PATCH_OUTPUT_JACK_RADIUS),
                 outline="#f0f0f0",
                 fill=color,
                 width=2,

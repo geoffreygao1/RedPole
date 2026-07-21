@@ -7,6 +7,7 @@ from gui import (
     LEFT_STACK_ROWS,
     PATCH_GRID_SIZE,
     PATCH_GRID_X,
+    PATCH_GRID_Y,
     PATCH_CELL,
     PATCH_CANVAS_H,
     PATCH_CANVAS_W,
@@ -17,6 +18,7 @@ from gui import (
     WAVEFORM_FIGSIZE,
     _can_add_patch_source,
     _patch_cable_points,
+    _patch_effect_jack_bounds,
     _patch_cell_to_engine,
     _patch_slot_positions,
     _picker_coords_to_hsv,
@@ -85,11 +87,24 @@ def test_patch_grid_rows_route_to_effect_engines():
         "granules",
         "glitch",
         "multidelay",
-        "reverb",
+        "tape",
     )
-    for row, engine in enumerate(PATCH_ROW_ENGINES):
+    for row, engine in enumerate(PATCH_ROW_ENGINES[:4]):
         assert _patch_cell_to_engine(row, 0) == engine
         assert _patch_cell_to_engine(row, 4) == engine
+    assert [_patch_cell_to_engine(4, col) for col in range(5)] == [
+        "tape",
+        "tape",
+        "tape",
+        "tape",
+        "reverb",
+    ]
+
+
+def test_tape_patch_column_labels_are_subtle_color_controls():
+    from gui import PATCH_TAPE_COL_LABELS
+
+    assert PATCH_TAPE_COL_LABELS == ("wow", "flutter", "tone", "dropout", "reverb")
 
 
 def test_patch_bay_is_primary_and_waveform_is_shorter():
@@ -124,23 +139,37 @@ def test_patch_cell_rejects_out_of_range_coordinates():
     assert _patch_cell_to_engine(0, PATCH_GRID_SIZE) is None
 
 
-def test_source_positions_wrap_to_new_column_after_eight_inputs():
+def test_source_positions_form_five_by_five_grid():
     positions = _source_positions_for_ids(list(range(1, 11)))
 
     first_x = positions[1][0]
-    assert positions[8][0] == first_x
-    assert positions[9][0] > first_x
-    assert positions[9][1] == positions[1][1]
-    assert positions[10][1] == positions[2][1]
+    first_y = positions[1][1]
+    assert positions[5][0] == first_x
+    assert positions[5][1] == first_y + PATCH_CELL * 4
+    assert positions[6][0] == first_x + PATCH_CELL
+    assert positions[6][1] == first_y
+    assert positions[10][0] == first_x + PATCH_CELL
+    assert positions[10][1] == first_y + PATCH_CELL * 4
 
 
 def test_patch_bay_preallocates_twenty_five_output_slots():
     positions = _patch_slot_positions()
 
     assert len(positions) == PATCH_SOURCE_LIMIT
-    assert positions[0][0] == positions[7][0]
-    assert positions[8][0] > positions[0][0]
-    assert positions[24][0] > positions[16][0]
+    assert positions[0][0] == positions[4][0]
+    assert positions[5][0] == positions[0][0] + PATCH_CELL
+    assert positions[24][0] == positions[0][0] + PATCH_CELL * 4
+    assert positions[24][1] == positions[0][1] + PATCH_CELL * 4
+
+
+def test_effect_grid_cells_have_centered_jack_targets():
+    bounds = _patch_effect_jack_bounds(2, 3)
+    cx = (bounds[0] + bounds[2]) / 2
+    cy = (bounds[1] + bounds[3]) / 2
+
+    assert cx == PATCH_GRID_X + PATCH_CELL * 3 + PATCH_CELL / 2
+    assert cy == PATCH_GRID_Y + PATCH_CELL * 2 + PATCH_CELL / 2
+    assert 0 < bounds[2] - bounds[0] < PATCH_CELL
 
 
 def test_active_sources_use_preallocated_output_slots_in_order():

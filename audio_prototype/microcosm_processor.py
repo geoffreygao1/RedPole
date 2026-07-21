@@ -36,22 +36,22 @@ def microcosm_variant(layer):
 def microloop_pitch_ratios(layer):
     col = int(clamp(layer.get("patch_col", 2), 0, 4))
     return (
-        (0.5, 1.0),
-        (0.5, 1.0, 1.0),
-        (0.5, 1.0, 2.0),
-        (1.0, 1.0, 2.0),
-        (0.5, 1.0, 2.0, 4.0),
+        (0.25, 0.5, 1.0),
+        (0.25, 0.5, 1.0, 1.0),
+        (0.25, 0.5, 1.0, 2.0),
+        (0.5, 1.0, 1.0, 2.0),
+        (0.25, 0.5, 1.0, 2.0, 4.0),
     )[col]
 
 
 def microloop_pitch_weights(layer):
     col = int(clamp(layer.get("patch_col", 2), 0, 4))
     return (
-        (0.42, 0.58),
-        (0.34, 0.46, 0.20),
-        (0.42, 0.32, 0.26),
-        (0.28, 0.42, 0.30),
-        (0.40, 0.20, 0.25, 0.15),
+        (0.24, 0.44, 0.32),
+        (0.20, 0.32, 0.34, 0.14),
+        (0.22, 0.34, 0.24, 0.20),
+        (0.34, 0.30, 0.18, 0.18),
+        (0.22, 0.34, 0.18, 0.16, 0.10),
     )[col]
 
 
@@ -77,41 +77,41 @@ def microcosm_controls(layer):
     base_interval = 0.18 + 0.62 * (1.0 - bpm_norm)
     base_event = 0.035 + 0.18 * sat
     timing = {
-        "microloop": (4.3, 3.5),
-        "granules": (1.0, 1.0),
-        "glitch": (1.15, 0.58),
-        "multidelay": (2.8, 1.25),
+        "microloop": (5.6, 5.6),
+        "granules": (1.25, 1.35),
+        "glitch": (1.1, 0.54),
+        "multidelay": (4.2, 1.45),
     }[engine]
     pitch_ratios = (
-        (0.5, 1.0, 2.0, 4.0)
+        (0.25, 0.5, 1.0, 2.0, 4.0)
         if engine == "glitch"
         else microloop_pitch_ratios(layer)
         if engine == "microloop"
-        else (0.5, 1.0, 2.0)
+        else (0.25, 0.5, 1.0, 2.0)
     )
     pitch_weights = (
         microloop_pitch_weights(layer)
         if engine == "microloop"
         else pitch_weights_for_ratios(
             pitch_ratios,
-            low_bias=1.25 if engine in ("granules", "glitch", "multidelay") else 1.0,
+            low_bias=1.55 if engine in ("granules", "glitch", "multidelay") else 1.0,
         )
     )
     return {
         "interval_seconds": base_interval * timing[0],
         "event_seconds": base_event * timing[1],
         "grain_seconds": (
-            0.16 + 0.18 * sat
+            0.26 + 0.24 * sat
             if engine == "granules"
             else 0.035 + 0.09 * sat
         ),
-        "delay_base_seconds": base_interval * (1.55 if engine == "multidelay" else 0.45),
+        "delay_base_seconds": base_interval * (2.55 if engine == "multidelay" else 0.45),
         "source_spread_seconds": 0.08 + 0.65 * (1.0 - bpm_norm),
         "level": 0.25 + 0.75 * val,
         "tone": hue_to_bipolar(layer["hue"]),
         "pitch_ratios": pitch_ratios,
         "pitch_weights": pitch_weights,
-        "octave_down_gain": 1.28 if engine == "microloop" else 1.18,
+        "octave_down_gain": 1.42 if engine == "microloop" else 1.3,
         "variant": microcosm_variant(layer),
     }
 
@@ -195,7 +195,7 @@ class MicrocosmProcessor:
             buffer[-frames:] = 0.0
 
         self._voices = {k: v for k, v in self._voices.items() if k in active}
-        out *= OUTPUT_LEVEL / max(1.0, np.sqrt(len(layers)))
+        out *= OUTPUT_LEVEL
         return np.tanh(out).astype(np.float32)
 
     def _next_interval(self, voice, controls):
