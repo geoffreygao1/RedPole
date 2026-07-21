@@ -22,16 +22,18 @@
       </div>
       <div class="control-row">
         <label>BPM <input id="bpm-input" type="number" value="70" min="20" max="300" /></label>
+      </div>
+      <div class="control-row">
         <button id="random-button">Random</button>
         <button id="send-button">Send</button>
-      </div>
-      <div class="field-block">
-        <label>Wet/Dry <input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
       </div>
     </section>
 
     <section id="patch-bay">
       <h2>Patch Bay</h2>
+      <div class="field-block patch-control">
+        <label>Wet/Dry <input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
+      </div>
       <canvas id="patch-canvas" width="800" height="390"></canvas>
     </section>
 

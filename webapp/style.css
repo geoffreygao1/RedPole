@@ -61,6 +61,10 @@ section h2 {
   width: 100%;
 }
 
+.patch-control {
+  max-width: 280px;
+}
+
 canvas {
   border: 1px solid #555;
   cursor: crosshair;
