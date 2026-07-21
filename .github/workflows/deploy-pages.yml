@@ -11,6 +11,7 @@ on:
       - "audio_prototype/microcosm_processor.py"
       - "audio_prototype/reverb.py"
       - "audio_prototype/wet_bus.py"
+      - "audio_prototype/crowd.py"
       - "audio_prototype/web_engine.py"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
@@ -45,6 +46,7 @@ jobs:
              audio_prototype/microcosm_processor.py \
              audio_prototype/reverb.py \
              audio_prototype/wet_bus.py \
+             audio_prototype/crowd.py \
              audio_prototype/web_engine.py \
              site/audio_prototype/
           cat > site/index.html <<'EOF'

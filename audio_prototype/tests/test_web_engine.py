@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from web_engine import WebEngine
+from modulation import combine_layers
 
 SR = 44100
 
@@ -9,6 +10,14 @@ SR = 44100
 def _tone(freq, seconds=1.0, sr=SR):
     t = np.arange(int(sr * seconds)) / sr
     return (0.4 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+
+
+@pytest.fixture
+def engine():
+    eng = WebEngine(samplerate=SR, seed=42)
+    rng = np.random.default_rng(1)
+    eng.load_loop(rng.uniform(-0.5, 0.5, SR).astype(np.float32))
+    return eng
 
 
 def test_generate_block_requires_loaded_loop():
@@ -193,3 +202,53 @@ def test_wet_dry_zero_is_pure_base():
         block = engine.generate_block(1024)
         dry_block = dry_engine.generate_block(1024)
     np.testing.assert_allclose(block, dry_block, atol=1e-4)
+
+
+def test_all_four_microcosm_families_alter_output(engine):
+    for family in ("microloop", "granules", "glitch", "multidelay"):
+        family_engine = WebEngine(samplerate=SR, seed=42)
+        family_engine.load_loop(engine.loop_array)
+        family_engine.wet_dry = 1.0
+        source_id = family_engine.registry.add_source(
+            hue=0.03, sat=0.68, val=0.94, bpm=100
+        )
+        family_engine.registry.connect_source(source_id, engine=family, row=0, col=0)
+        peaks = [
+            float(np.max(np.abs(family_engine.generate_block(4096))))
+            for _ in range(10)
+        ]
+        assert any(peak > 1e-6 for peak in peaks), f"{family} produced no wet signal"
+
+
+def test_new_tape_source_gets_a_bloom_boost_from_entry_gesture(engine, monkeypatch):
+    bloom_depths = []
+
+    def capture_process(
+        loop_array,
+        frames,
+        warble_depth,
+        bloom_depth,
+        rate_hz,
+        hue=0.0,
+        sat=0.0,
+        val=0.0,
+        tape_controls=None,
+    ):
+        bloom_depths.append(bloom_depth)
+        return np.zeros(frames, dtype=np.float32)
+
+    monkeypatch.setattr(engine.modulator, "process", capture_process)
+    source_id = engine.registry.add_source(hue=0.03, sat=0.68, val=0.94, bpm=100)
+    engine.registry.connect_source(source_id, engine="tape", row=0, col=0)
+    plain_bloom = combine_layers(engine.registry.snapshot())["bloom_depth"]
+    engine.generate_block(4096)
+    assert bloom_depths[-1] > plain_bloom
+
+
+def test_reverb_layers_set_dynamic_space(engine):
+    assert engine.reverb.space_style == "bright_room"
+    source_id = engine.registry.add_source(hue=0.03, sat=0.7, val=0.9, bpm=100)
+    engine.registry.connect_source(source_id, engine="reverb", row=0, col=0)
+    engine.generate_block(4096)
+    assert engine.reverb.space_style == "wash"
+    assert engine.reverb.space_size != 0.35 or engine.reverb.diffusion != 0.45
