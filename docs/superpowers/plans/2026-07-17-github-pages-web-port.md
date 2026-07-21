@@ -90,7 +90,7 @@ def test_tape_layer_changes_output():
     engine2 = WebEngine(samplerate=SR, seed=1)
     engine2.load_loop(_tone(220.0, seconds=2.0))
     source_id = engine2.registry.add_source(hue=0.04, sat=0.68, val=0.94, bpm=120)
-    engine2.registry.connect_source(source_id, engine="tape", row=0, col=1, store_col=False)
+    engine2.registry.connect_source(source_id, engine="tape", row=0, col=1)
     wet = engine2.generate_block(1024)
 
     assert not np.allclose(dry, wet)
@@ -101,7 +101,7 @@ def test_tape_column_controls_reach_the_modulator():
     engine.load_loop(_tone(220.0, seconds=2.0))
     source_id = engine.registry.add_source(hue=0.04, sat=1.0, val=1.0, bpm=120)
     # column 1 = flutter-emphasized per tape_column_controls
-    engine.registry.connect_source(source_id, engine="tape", row=0, col=1, store_col=False)
+    engine.registry.connect_source(source_id, engine="tape", row=0, col=1)
     for _ in range(10):
         engine.generate_block(1024)
     assert engine.modulator.last_warble_signal is not None
@@ -111,7 +111,7 @@ def test_layer_removed_continues_seamlessly_without_position_jump():
     engine = WebEngine(samplerate=SR, seed=1)
     engine.load_loop(_tone(220.0, seconds=2.0))
     source_id = engine.registry.add_source(hue=0.04, sat=1.0, val=1.0, bpm=120)
-    engine.registry.connect_source(source_id, engine="tape", row=0, col=1, store_col=False)
+    engine.registry.connect_source(source_id, engine="tape", row=0, col=1)
     engine.generate_block(512)
     pos_before_removal = engine.modulator._read_pos
     engine.registry.remove_source(source_id)
@@ -265,7 +265,7 @@ def _granules_layer(engine, hue=0.04, sat=0.8, val=1.0, bpm=150.0, col=0):
 
 def _reverb_layer(engine, hue=0.04, sat=0.6, val=0.9, bpm=90.0):
     source_id = engine.registry.add_source(hue=hue, sat=sat, val=val, bpm=bpm)
-    engine.registry.connect_source(source_id, engine="reverb", row=0, col=4, store_col=False)
+    engine.registry.connect_source(source_id, engine="reverb", row=0, col=4)
     return source_id
 
 
@@ -550,7 +550,7 @@ git commit -m "feat: add AudioWorklet ring buffer for the web port"
 
 **Interfaces:**
 - Consumes: `web_engine.WebEngine` (Task 2, fetched at runtime), the linked `MessageChannel` port from `worklet.js` (Task 3).
-- Produces: handles messages from `main.js`: `{type:"init", sampleRate, audioPort}` (audioPort is the transferred `MessageChannel` port for talking to the worklet), `{type:"load_loop", samples}`, `{type:"add_source", hue, sat, val, bpm}` (replies `{type:"source_added", sourceId}`), `{type:"connect_source", sourceId, engine, row, col, storeCol}`, `{type:"disconnect_source", sourceId}`, `{type:"remove_source", sourceId}`, `{type:"set_wet_dry", value}`, `{type:"play"}`, `{type:"pause"}`. Posts `{type:"ready"}` once Pyodide + the engine are initialized, and `{type:"error", message}` on any failure.
+- Produces: handles messages from `main.js`: `{type:"init", sampleRate, audioPort}` (audioPort is the transferred `MessageChannel` port for talking to the worklet), `{type:"load_loop", samples}`, `{type:"add_source", hue, sat, val, bpm}` (replies `{type:"source_added", sourceId}`), `{type:"connect_source", sourceId, engine, row, col}`, `{type:"disconnect_source", sourceId}`, `{type:"remove_source", sourceId}`, `{type:"set_wet_dry", value}`, `{type:"play"}`, `{type:"pause"}`. Posts `{type:"ready"}` once Pyodide + the engine are initialized, and `{type:"error", message}` on any failure.
 
 No automated test — depends on Pyodide/WebAssembly, only real in a browser. Verified manually in Task 7.
 
@@ -670,11 +670,10 @@ self.onmessage = async (event) => {
       );
       self.postMessage({ type: "source_added", sourceId });
     } else if (msg.type === "connect_source") {
-      const storeCol = msg.storeCol ? "True" : "False";
       pyodide.runPython(
         `engine.registry.connect_source(${msg.sourceId}, engine=${JSON.stringify(
           msg.engine
-        )}, row=${msg.row}, col=${msg.col}, store_col=${storeCol})`
+        )}, row=${msg.row}, col=${msg.col})`
       );
     } else if (msg.type === "disconnect_source") {
       pyodide.runPython(`engine.registry.disconnect_source(${msg.sourceId})`);
@@ -1073,14 +1072,12 @@ class App {
       source.col = null;
     } else {
       const engine = ROW_LABELS[cell.row];
-      const storeCol = engine !== "tape";
       this.worker.postMessage({
         type: "connect_source",
         sourceId: this.dragSourceId,
         engine,
         row: cell.row,
         col: cell.col,
-        storeCol,
       });
       source.row = cell.row;
       source.col = cell.col;
@@ -1267,4 +1264,4 @@ If everything in Step 3 passes, the MVP is functionally verified locally. Deploy
 
 - **Spec coverage:** zero-duplication `pyfetch`/`fetch` of real `.py` files (Task 4); `web_engine.py` reusing `TapeModulator`/`MicrocosmProcessor`/`SchroederReverb`/`WetBusManager`/`RmsLimiter`/`LayerRegistry` unmodified (Tasks 1-2); tape/granules/reverb-only 2-row MVP scope (Tasks 1-2, 5); Worker+postMessage-to-AudioWorklet bridge bypassing the main thread (Tasks 3-4-5); file loading via `decodeAudioData` (Task 5); error handling for Pyodide/worklet/fetch failures (Tasks 4-5); manual JS verification, automated Python tests (Task 7); GitHub Pages deployment with `audio_prototype/` published as a sibling of `webapp/` so relative fetch paths match local dev exactly (Task 6).
 - **Placeholder scan:** none; every step has complete, runnable code. The one open external detail is the pinned Pyodide CDN version (`v0.26.4`) — if that exact version is ever removed from jsdelivr, Task 7 Step 3's "page won't load" failure mode is exactly what would surface, with the fix being to bump `PYODIDE_VERSION` in `worker.js`.
-- **Type consistency:** `WebEngine.generate_block(frames)` and `.load_loop(samples)` signatures match between Tasks 1-2 and the JS calls in `worker.js` (Task 4); `LayerRegistry.connect_source(source_id, engine, row, col, store_col)` matches its existing (unmodified) signature from `layers.py`, used identically in both the Python tests and the JS `connect_source` message handler. Fixed during self-review: an earlier draft of Task 1 introduced a separate `_dry_pos`/`_next_dry` fallback that would have desynced from `self.modulator._read_pos` whenever tape layers were removed mid-session (an audible position jump) — resolved by always routing through `TapeModulator.process`, as documented in Global Constraints.
+- **Type consistency:** `WebEngine.generate_block(frames)` and `.load_loop(samples)` signatures match between Tasks 1-2 and the JS calls in `worker.js` (Task 4); `LayerRegistry.connect_source(source_id, engine, row, col)` matches its existing (unmodified) signature from `layers.py`, used identically in both the Python tests and the JS `connect_source` message handler — `patch_col` is always stored on the resulting layer (there is no `store_col` parameter), which is exactly what `tape_column_controls` needs to read the wow/flutter/tone/dropout column and what `microcosm_variant` needs for granules' haze/tunnel/strum column. Fixed during self-review: an earlier draft of Task 1 introduced a separate `_dry_pos`/`_next_dry` fallback that would have desynced from `self.modulator._read_pos` whenever tape layers were removed mid-session (an audible position jump) — resolved by always routing through `TapeModulator.process`, as documented in Global Constraints. Fixed after Task 1's implementation: an earlier draft of this plan incorrectly assumed `connect_source` took a `store_col` keyword (leftover from an unrelated, since-reverted branch of work) — removed from every call site; the real signature always stores `patch_row`/`patch_col`, which was corrected across Tasks 1-2's test code and Tasks 4-5's JS.
