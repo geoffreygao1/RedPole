@@ -21,6 +21,9 @@ class RingWorkletProcessor extends AudioWorkletProcessor {
         this._audioPort.onmessage = (blockEvent) => {
           if (blockEvent.data && blockEvent.data.type === "block") {
             this._queue.push(blockEvent.data.samples);
+          } else if (blockEvent.data && blockEvent.data.type === "flush") {
+            this._queue = [];
+            this._queueOffset = 0;
           }
         };
       }

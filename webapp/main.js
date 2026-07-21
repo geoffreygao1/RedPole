@@ -201,7 +201,12 @@ class App {
       alert(`Maximum patch outputs reached (${PATCH_SOURCE_LIMIT}).`);
       return;
     }
-    const bpm = parseFloat(this.bpmInput.value);
+    let bpm = parseFloat(this.bpmInput.value);
+    if (!Number.isFinite(bpm)) {
+      bpm = 70;
+    } else {
+      bpm = Math.min(300, Math.max(20, bpm));
+    }
     const { hue, sat, val } = this.currentHsv;
     const [r, g, b] = hsvToRgb(hue, sat, val);
     const color = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
@@ -264,7 +269,7 @@ class App {
       source.row = null;
       source.col = null;
     } else {
-      const engine = ROW_LABELS[cell.row];
+      const engine = cell.row === 0 && cell.col === 4 ? "reverb" : ROW_LABELS[cell.row];
       this.worker.postMessage({
         type: "connect_source",
         sourceId: this.dragSourceId,

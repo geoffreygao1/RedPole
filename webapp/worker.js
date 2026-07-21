@@ -103,6 +103,7 @@ self.onmessage = async (event) => {
       pyodide.globals.set("_samples", msg.samples);
       pyodide.runPython("engine.load_loop(_samples)");
       bufferedAheadFrames = 0;
+      if (audioPort) audioPort.postMessage({ type: "flush" });
     } else if (msg.type === "add_source") {
       const sourceId = pyodide.runPython(
         `engine.registry.add_source(hue=${msg.hue}, sat=${msg.sat}, val=${msg.val}, bpm=${msg.bpm})`
@@ -123,6 +124,7 @@ self.onmessage = async (event) => {
     } else if (msg.type === "play") {
       paused = false;
       bufferedAheadFrames = 0;
+      if (audioPort) audioPort.postMessage({ type: "flush" });
     } else if (msg.type === "pause") {
       paused = true;
     }
