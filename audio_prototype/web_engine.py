@@ -73,6 +73,9 @@ class WebEngine:
 
         layers = self.registry.snapshot()
         tape_layers = [l for l in layers if l["engine"] == "tape"]
+        gran_layers = [l for l in layers if l["engine"] == "granules"]
+        reverb_layers = [l for l in layers if l["engine"] == "reverb"]
+        zeros = np.zeros(frames, dtype=np.float32)
 
         combined = combine_layers(tape_layers)
         tape_controls = tape_column_controls(tape_layers)
@@ -80,6 +83,7 @@ class WebEngine:
         avg_sat = sum(l["sat"] for l in tape_layers) / len(tape_layers) if tape_layers else 0.5
         avg_val = sum(l["val"] for l in tape_layers) / len(tape_layers) if tape_layers else 1.0
 
+        source_pos = self.modulator._read_pos
         base = self.modulator.process(
             self.loop_array,
             frames,
@@ -91,4 +95,48 @@ class WebEngine:
             val=avg_val,
             tape_controls=tape_controls,
         )
-        return base.astype(np.float32)
+
+        if not layers:
+            return base.astype(np.float32)
+
+        wet_raw = self.microcosm.process(
+            self.loop_array, frames, gran_layers, source_pos=source_pos
+        )
+        n_wet = len(gran_layers)
+        n_rv = len(reverb_layers)
+
+        if reverb_layers:
+            weights = np.array(
+                [0.2 + l["sat"] + l["val"] for l in reverb_layers], dtype=np.float64
+            )
+            vals = np.array([l["val"] for l in reverb_layers], dtype=np.float64)
+            bpms = np.array([l["bpm"] for l in reverb_layers], dtype=np.float64)
+            rv_val = float(np.average(vals, weights=weights))
+            rv_bpm = float(np.average(bpms, weights=weights))
+            target_fb = bpm_to_reverb_feedback(rv_bpm)
+            target_cut = val_to_reverb_cutoff(rv_val)
+        else:
+            target_fb = REVERB_DEFAULT_FEEDBACK
+            target_cut = REVERB_DEFAULT_CUTOFF
+
+        controls = self.wet_bus.controls(wet_voice_count=n_wet, reverb_layer_count=n_rv)
+        target_fb = max(0.62, target_fb - controls["feedback_trim"])
+        target_cut = max(700.0, target_cut * controls["cutoff_scale"])
+        self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
+        self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
+        self.reverb.set_feedback(self._rv_feedback)
+        self.reverb.set_cutoff(self._rv_cutoff)
+
+        managed_wet_raw = self.wet_bus.process(
+            wet_raw, wet_voice_count=n_wet, reverb_layer_count=n_rv
+        )
+        # Reverb-only layers add no signal of their own -- they only shape
+        # the room -- matching the desktop app's semantics.
+        reverb_input = managed_wet_raw if reverb_layers else zeros
+        reverb_wet = self.reverb.process(reverb_input) if reverb_layers else zeros
+        wet = self.wet_limiter.process(managed_wet_raw + self.reverb_mix * reverb_wet)
+
+        mix = float(np.clip(self.wet_dry, 0.0, 1.0))
+        dry_gain = min(1.0, 2.0 * (1.0 - mix))
+        wet_gain = min(1.0, 2.0 * mix)
+        return soft_clip(dry_gain * base + wet_gain * wet).astype(np.float32)
