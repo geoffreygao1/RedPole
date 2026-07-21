@@ -88,7 +88,7 @@ class GranularProcessor:
     time, so per-block cost is just mixing.
     """
 
-    STREAM_LEVEL = 0.5
+    STREAM_LEVEL = 0.65  # +30% per user request (was 0.5)
 
     def __init__(self, samplerate, seed=None):
         self.samplerate = samplerate

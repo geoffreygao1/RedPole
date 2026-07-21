@@ -12,7 +12,7 @@ FAMILY_VARIANTS = {
 EVENT_DENSITY_TARGET = 3.0
 MAX_EVENTS_PER_BLOCK = 3
 EVENT_JITTER = 0.55
-OUTPUT_LEVEL = 0.62
+OUTPUT_LEVEL = 0.806  # +30% per user request (was 0.62)
 
 
 def event_cap_for_frames(frames):

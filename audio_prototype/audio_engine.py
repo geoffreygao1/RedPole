@@ -148,7 +148,7 @@ class AudioEngine:
         self.microcosm = MicrocosmProcessor(samplerate, seed=seed)
         self.reverb = SchroederReverb(samplerate)
         self.wet_bus = WetBusManager(samplerate)
-        self.reverb_mix = 0.75
+        self.reverb_mix = 0.975  # +30% per user request (was 0.75)
         # Guards the wet bus against sustained overload (many layers,
         # live-analysis feedback, long reverb tails all stacking up).
         self.wet_limiter = RmsLimiter(target_rms=0.35)
