@@ -112,10 +112,22 @@ def test_granules_layer_produces_wet_signal():
     engine.load_loop(_tone(220.0, seconds=2.0))
     _granules_layer(engine)
 
-    blocks = [engine.generate_block(1024) for _ in range(30)]
-    assert any(np.max(np.abs(b)) > 1e-4 for b in blocks)
+    dry_engine = WebEngine(samplerate=SR, seed=1)
+    dry_engine.load_loop(_tone(220.0, seconds=2.0))
+
+    blocks = []
+    dry_blocks = []
+    for _ in range(30):
+        blocks.append(engine.generate_block(1024))
+        dry_blocks.append(dry_engine.generate_block(1024))
     assert all(b.shape == (1024,) for b in blocks)
     assert all(not np.any(np.isnan(b)) for b in blocks)
+    # granules must audibly differ from an identical dry-only engine --
+    # a test that only checks "some nonzero signal" would pass even with
+    # granules completely unwired, since the dry loop itself is nonzero.
+    assert any(
+        not np.allclose(b, d, atol=1e-6) for b, d in zip(blocks, dry_blocks)
+    )
 
 
 def test_reverb_only_layer_is_silent_without_another_effect():
@@ -123,22 +135,47 @@ def test_reverb_only_layer_is_silent_without_another_effect():
     engine.load_loop(_tone(220.0, seconds=2.0))
     _reverb_layer(engine)
 
+    dry_engine = WebEngine(samplerate=SR, seed=1)
+    dry_engine.load_loop(_tone(220.0, seconds=2.0))
+
+    block = None
+    dry_block = None
     for _ in range(20):
         block = engine.generate_block(1024)
+        dry_block = dry_engine.generate_block(1024)
     assert np.max(np.abs(block)) <= 1.0
     assert not np.any(np.isnan(block))
+    # a reverb-only layer adds no source of its own, so output should stay
+    # close to the plain dry/tape base -- not just "bounded and finite",
+    # which a fully-wired reverb send would also satisfy.
+    np.testing.assert_allclose(block, dry_block, atol=1e-3)
 
 
 def test_reverb_layer_adds_tail_when_paired_with_granules():
-    engine = WebEngine(samplerate=SR, seed=1)
-    engine.load_loop(_tone(220.0, seconds=2.0))
-    _granules_layer(engine)
-    _reverb_layer(engine)
+    granules_only = WebEngine(samplerate=SR, seed=1)
+    granules_only.load_loop(_tone(220.0, seconds=2.0))
+    _granules_layer(granules_only)
 
+    granules_and_reverb = WebEngine(samplerate=SR, seed=1)
+    granules_and_reverb.load_loop(_tone(220.0, seconds=2.0))
+    _granules_layer(granules_and_reverb)
+    _reverb_layer(granules_and_reverb)
+
+    granules_only_blocks = []
+    granules_and_reverb_blocks = []
     for _ in range(40):
-        block = engine.generate_block(1024)
-    assert not np.any(np.isnan(block))
-    assert np.max(np.abs(block)) <= 1.0
+        granules_only_blocks.append(granules_only.generate_block(1024))
+        granules_and_reverb_blocks.append(granules_and_reverb.generate_block(1024))
+        assert not np.any(np.isnan(granules_and_reverb_blocks[-1]))
+        assert np.max(np.abs(granules_and_reverb_blocks[-1])) <= 1.0
+
+    # adding a reverb layer on top of an identical granules layer must
+    # audibly change the output (the reverb tail) -- otherwise this test
+    # would pass even if reverb layers were never wired into the wet sum.
+    assert any(
+        not np.allclose(a, b, atol=1e-6)
+        for a, b in zip(granules_only_blocks, granules_and_reverb_blocks)
+    )
 
 
 def test_wet_dry_zero_is_pure_base():
