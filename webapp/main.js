@@ -1,11 +1,11 @@
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
 const PATCH_CELL = 58;
-const PATCH_GRID_X = 340;
-const PATCH_GRID_Y = 20;
-const PATCH_SOURCE_X = 40;
-const PATCH_SOURCE_TOP = 30;
-const PATCH_SOURCE_GAP = 20;
+const PATCH_GRID_X = 400;
+const PATCH_GRID_Y = 70;
+const OUTPUT_GRID_X = 36;
+const OUTPUT_GRID_Y = 70;
+const JACK_RADIUS = 9;
 const PATCH_SOURCE_LIMIT = 25;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
 // order and engine names sent in connect_source's "engine" field.
@@ -85,6 +85,28 @@ function drawCable(ctx, x1, y1, x2, y2, color, dashed) {
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
+}
+
+function gridCenter(originX, originY, row, col) {
+  return {
+    x: originX + col * PATCH_CELL + PATCH_CELL / 2,
+    y: originY + row * PATCH_CELL + PATCH_CELL / 2,
+  };
+}
+
+function outputSlotPosition(slot) {
+  const row = Math.floor(slot / PATCH_GRID_COLS);
+  const col = slot % PATCH_GRID_COLS;
+  return gridCenter(OUTPUT_GRID_X, OUTPUT_GRID_Y, row, col);
+}
+
+function drawJack(ctx, x, y, color) {
+  ctx.beginPath();
+  ctx.arc(x, y, JACK_RADIUS, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = "#888";
+  ctx.stroke();
 }
 
 class App {
@@ -277,9 +299,10 @@ class App {
     // received them, so the oldest queued entry always matches this reply.
     const pending = this._pendingSources.shift();
     const slot = this.nextSourceSlot();
+    const position = outputSlotPosition(slot);
     this.sources.set(sourceId, {
-      x: PATCH_SOURCE_X,
-      y: PATCH_SOURCE_TOP + slot * PATCH_SOURCE_GAP,
+      x: position.x,
+      y: position.y,
       color: pending.color,
       bpm: pending.bpm,
       slot,
@@ -354,10 +377,21 @@ class App {
     ctx.fillStyle = "#161616";
     ctx.fillRect(0, 0, this.patchCanvas.width, this.patchCanvas.height);
 
-    const cellColors = new Map();
+    ctx.fillStyle = "#999";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("outputs", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);
+    ctx.fillText("inputs", PATCH_GRID_X, PATCH_GRID_Y - 18);
+
+    const outputColors = new Map();
+    for (const [, source] of this.sources) {
+      outputColors.set(source.slot, source.color);
+    }
+
+    const inputColors = new Map();
     for (const [, source] of this.sources) {
       if (source.row !== null) {
-        cellColors.set(`${source.row}:${source.col}`, source.color);
+        inputColors.set(`${source.row}:${source.col}`, source.color);
       }
     }
 
@@ -370,28 +404,18 @@ class App {
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
         const y0 = PATCH_GRID_Y + row * PATCH_CELL;
-        ctx.strokeStyle = "#555";
-        ctx.fillStyle = cellColors.get(`${row}:${col}`) || "#2a2a2a";
-        ctx.fillRect(x0, y0, PATCH_CELL, PATCH_CELL);
+        ctx.strokeStyle = "#444";
         ctx.strokeRect(x0, y0, PATCH_CELL, PATCH_CELL);
-        ctx.fillStyle = cellColors.has(`${row}:${col}`) ? "#111" : "#888";
+        ctx.fillStyle = "#888";
         ctx.font = "9px sans-serif";
         ctx.fillText(VARIANT_COL_LABELS[col], x0 + 6, y0 + 14);
       }
     }
 
     for (const [, source] of this.sources) {
-      ctx.beginPath();
-      ctx.arc(source.x, source.y, 8, 0, 2 * Math.PI);
-      ctx.fillStyle = source.color;
-      ctx.fill();
-      ctx.strokeStyle = "#f0f0f0";
-      ctx.stroke();
-
       if (source.row !== null) {
-        const cx = PATCH_GRID_X + source.col * PATCH_CELL + PATCH_CELL / 2;
-        const cy = PATCH_GRID_Y + source.row * PATCH_CELL + PATCH_CELL / 2;
-        drawCable(ctx, source.x, source.y, cx, cy, source.color, false);
+        const input = gridCenter(PATCH_GRID_X, PATCH_GRID_Y, source.row, source.col);
+        drawCable(ctx, source.x, source.y, input.x, input.y, source.color, false);
       }
     }
 
@@ -399,6 +423,16 @@ class App {
       const source = this.sources.get(this.dragSourceId);
       if (source) {
         drawCable(ctx, source.x, source.y, this.dragPos.x, this.dragPos.y, source.color, true);
+      }
+    }
+
+    for (let row = 0; row < PATCH_GRID_ROWS; row++) {
+      for (let col = 0; col < PATCH_GRID_COLS; col++) {
+        const slot = row * PATCH_GRID_COLS + col;
+        const output = gridCenter(OUTPUT_GRID_X, OUTPUT_GRID_Y, row, col);
+        const input = gridCenter(PATCH_GRID_X, PATCH_GRID_Y, row, col);
+        drawJack(ctx, output.x, output.y, outputColors.get(slot) || "#4a4a4a");
+        drawJack(ctx, input.x, input.y, inputColors.get(`${row}:${col}`) || "#4a4a4a");
       }
     }
   }
