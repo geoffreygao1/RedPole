@@ -52,6 +52,15 @@ class App {
   constructor() {
     this.worker = new Worker("worker.js");
     this.sources = new Map(); // sourceId -> {x, y, color, row, col}
+    // FIFO queue of sources sent to the worker via "add_source" but not yet
+    // confirmed by a "source_added" reply. The worker processes add_source
+    // messages (and replies to them) strictly in the order they were sent,
+    // so the front of this queue always corresponds to the next
+    // "source_added" message we receive. Keeping each in-flight request's
+    // data here (rather than a single shared field) prevents rapid repeat
+    // clicks of Send from clobbering each other's color/BPM before their
+    // replies arrive.
+    this._pendingSources = [];
     this.dragSourceId = null;
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
 
@@ -185,7 +194,10 @@ class App {
   }
 
   onSend() {
-    if (this.sources.size >= PATCH_SOURCE_LIMIT) {
+    // Count confirmed sources plus requests already in flight, so a burst
+    // of rapid clicks can't exceed the limit before any "source_added"
+    // replies have come back.
+    if (this.sources.size + this._pendingSources.length >= PATCH_SOURCE_LIMIT) {
       alert(`Maximum patch outputs reached (${PATCH_SOURCE_LIMIT}).`);
       return;
     }
@@ -193,13 +205,14 @@ class App {
     const { hue, sat, val } = this.currentHsv;
     const [r, g, b] = hsvToRgb(hue, sat, val);
     const color = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
-    this._pendingSource = { hue, sat, val, bpm, color };
+    this._pendingSources.push({ hue, sat, val, bpm, color });
     this.worker.postMessage({ type: "add_source", hue, sat, val, bpm });
   }
 
   finishPendingSource(sourceId) {
-    const pending = this._pendingSource;
-    this._pendingSource = null;
+    // The worker replies to add_source requests strictly in the order it
+    // received them, so the oldest queued entry always matches this reply.
+    const pending = this._pendingSources.shift();
     const slot = this.sources.size;
     this.sources.set(sourceId, {
       x: PATCH_SOURCE_X,
