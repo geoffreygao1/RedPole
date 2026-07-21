@@ -384,14 +384,40 @@ class App {
     ctx.fillText("inputs", PATCH_GRID_X, PATCH_GRID_Y - 18);
 
     const outputColors = new Map();
-    for (const [, source] of this.sources) {
+    const outputLabels = new Map();
+    for (const [sourceId, source] of this.sources) {
       outputColors.set(source.slot, source.color);
+      outputLabels.set(source.slot, String(sourceId));
     }
 
     const inputColors = new Map();
     for (const [, source] of this.sources) {
       if (source.row !== null) {
         inputColors.set(`${source.row}:${source.col}`, source.color);
+      }
+    }
+
+    for (let row = 0; row < PATCH_GRID_ROWS; row++) {
+      ctx.fillStyle = "#888";
+      ctx.font = "9px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(VARIANT_COL_LABELS[row], OUTPUT_GRID_X - 22, OUTPUT_GRID_Y + row * PATCH_CELL + 14);
+      for (let col = 0; col < PATCH_GRID_COLS; col++) {
+        const x0 = OUTPUT_GRID_X + col * PATCH_CELL;
+        const y0 = OUTPUT_GRID_Y + row * PATCH_CELL;
+        const slot = row * PATCH_GRID_COLS + col;
+        ctx.strokeStyle = "#444";
+        ctx.strokeRect(x0, y0, PATCH_CELL, PATCH_CELL);
+        ctx.fillStyle = outputColors.has(slot) ? "#111" : "#888";
+        ctx.font = "9px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(VARIANT_COL_LABELS[col], x0 + 6, y0 + 14);
+        if (outputLabels.has(slot)) {
+          ctx.fillStyle = "#111";
+          ctx.font = "12px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(outputLabels.get(slot), x0 + PATCH_CELL / 2, y0 + PATCH_CELL - 10);
+        }
       }
     }
 
