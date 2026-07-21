@@ -1,10 +1,10 @@
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
 const PATCH_CELL = 58;
-const PATCH_GRID_X = 400;
-const PATCH_GRID_Y = 70;
+const PATCH_GRID_X = 480;
+const PATCH_GRID_Y = 56;
 const OUTPUT_GRID_X = 36;
-const OUTPUT_GRID_Y = 70;
+const OUTPUT_GRID_Y = 56;
 const JACK_RADIUS = 9;
 const PATCH_SOURCE_LIMIT = 25;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
