@@ -13,6 +13,7 @@ const PYTHON_FILES = [
   "microcosm_processor.py",
   "reverb.py",
   "wet_bus.py",
+  "crowd.py",
   "web_engine.py",
 ];
 const BLOCK_FRAMES = 4096;
