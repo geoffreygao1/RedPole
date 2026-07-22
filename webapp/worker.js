@@ -14,6 +14,8 @@ const PYTHON_FILES = [
   "reverb.py",
   "wet_bus.py",
   "crowd.py",
+  "spectral_stretch.py",
+  "synth_source.py",
   "web_engine.py",
 ];
 const BLOCK_FRAMES = 4096;
@@ -120,6 +122,10 @@ self.onmessage = async (event) => {
       pyodide.runPython(`engine.registry.disconnect_source(${msg.sourceId})`);
     } else if (msg.type === "remove_source") {
       pyodide.runPython(`engine.registry.remove_source(${msg.sourceId})`);
+    } else if (msg.type === "set_mode") {
+      pyodide.runPython(`engine.set_mode(${JSON.stringify(msg.mode)})`);
+      bufferedAheadFrames = 0;
+      if (audioPort) audioPort.postMessage({ type: "flush" });
     } else if (msg.type === "set_wet_dry") {
       pyodide.runPython(`engine.wet_dry = ${msg.value}`);
     } else if (msg.type === "play") {
