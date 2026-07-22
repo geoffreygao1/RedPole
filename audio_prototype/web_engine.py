@@ -176,6 +176,40 @@ class WebEngine:
         wet_gain = min(1.0, 2.0 * mix)
         return soft_clip(dry_gain * base + wet_gain * wet).astype(np.float32)
 
+    def _synth_tape_block(self, tape_layers, frames, entry):
+        if not tape_layers:
+            self.synth_tape = {}
+            return np.zeros(frames, dtype=np.float64)
+        active = set()
+        out = np.zeros(frames, dtype=np.float64)
+        for layer in tape_layers:
+            vid = layer["id"]
+            active.add(vid)
+            mod = self.synth_tape.get(vid)
+            if mod is None:
+                seed = None if self._seed is None else self._seed + vid * 53
+                mod = TapeModulator(samplerate=self.samplerate, seed=seed)
+                self.synth_tape[vid] = mod
+            buf = self.synth.buffer_for(vid)
+            if buf is None or len(buf) == 0:
+                continue
+            combined = combine_layers([layer])
+            controls = tape_column_controls([layer])
+            block = mod.process(
+                buf,
+                frames,
+                combined["warble_depth"],
+                combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
+                combined["rate_hz"],
+                hue=layer["hue"],
+                sat=layer["sat"],
+                val=layer["val"],
+                tape_controls=controls,
+            )
+            out += np.asarray(block, dtype=np.float64)
+        self.synth_tape = {k: v for k, v in self.synth_tape.items() if k in active}
+        return out
+
     def _generate_synth_block(self, frames):
         layers = self.registry.snapshot()
         if not layers:
@@ -194,6 +228,8 @@ class WebEngine:
         dry /= max(1.0, np.sqrt(len(layers)))
 
         micro_layers = [l for l in layers if l["engine"] in MICRO_FAMILIES]
+        tape_layers = [l for l in layers if l["engine"] == "tape"]
+        reverb_layers = [l for l in layers if l["engine"] == "reverb"]
         source_arrays = {vid: self.synth.buffer_for(vid) for vid in voice_blocks}
         source_positions = {vid: self.synth.read_pos(vid) for vid in voice_blocks}
 
@@ -206,8 +242,35 @@ class WebEngine:
                 source_arrays=source_arrays,
                 source_positions=source_positions,
             )
+        wet += self._synth_tape_block(tape_layers, frames, entry)
+
+        n_wet = len(micro_layers) + len(tape_layers)
+        n_rv = len(reverb_layers)
+        managed_wet = np.asarray(
+            self.wet_bus.process(wet, wet_voice_count=n_wet, reverb_layer_count=n_rv),
+            dtype=np.float32,
+        )
+
+        suspension = min(1.0, 0.25 + 0.7 * crowd.density)
+        smear = min(1.0, 0.35 + 0.5 * crowd.density)
+        smeared = np.asarray(
+            self.spectral_smear.process(managed_wet, suspension=suspension, smear=smear),
+            dtype=np.float64,
+        )
+
+        target_fb = min(0.985, 0.9 + 0.06 * crowd.density)
+        target_cut = 3000.0 + 4000.0 * (1.0 - crowd.density)
+        rv_size = min(1.0, 0.5 + 0.45 * crowd.density)
+        rv_diffusion = min(1.0, 0.6 + 0.35 * crowd.density)
+        self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
+        self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
+        self.reverb.set_feedback(self._rv_feedback)
+        self.reverb.set_cutoff(self._rv_cutoff)
+        self.reverb.set_space(style="wash", size=rv_size, diffusion=rv_diffusion)
+        reverb_wet = self.reverb.process(smeared)
+        wet_final = self.wet_limiter.process(smeared + self.reverb_mix * reverb_wet)
 
         mix = float(np.clip(self.wet_dry, 0.0, 1.0))
         dry_gain = min(1.0, 2.0 * (1.0 - mix))
         wet_gain = min(1.0, 2.0 * mix)
-        return soft_clip(dry_gain * dry + wet_gain * wet).astype(np.float32)
+        return soft_clip(dry_gain * dry + wet_gain * wet_final).astype(np.float32)

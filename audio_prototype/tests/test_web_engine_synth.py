@@ -97,3 +97,44 @@ def test_two_micro_voices_are_bounded():
         block = engine.generate_block(2048)
         assert np.max(np.abs(block)) <= 1.0
         assert not np.any(np.isnan(block))
+
+
+def test_shape_row_voice_is_a_tape_toned_drone():
+    engine = WebEngine(samplerate=SR, seed=1)
+    engine.set_mode("synth")
+    engine.wet_dry = 1.0
+    _connect(engine, engine_name="tape", row=4, col=0)
+    total = np.concatenate([engine.generate_block(2048) for _ in range(50)])
+    assert float(np.sqrt(np.mean(total**2))) > 0.01
+    assert np.max(np.abs(total)) <= 1.0
+    assert not np.any(np.isnan(total))
+
+
+def test_density_deepens_the_smear_and_reverb():
+    engine = WebEngine(samplerate=SR, seed=1)
+    engine.set_mode("synth")
+    for i in range(6):
+        _connect(engine, engine_name="granules", row=1, col=i % 5)
+    for _ in range(20):
+        engine.generate_block(2048)
+    assert engine.reverb.space_style == "wash"
+    assert engine.reverb.space_size > 0.35
+    assert not np.any(np.isnan(engine.generate_block(2048)))
+
+
+def test_full_room_output_stays_bounded():
+    engine = WebEngine(samplerate=SR, seed=1)
+    engine.set_mode("synth")
+    engines = ("granules", "glitch", "multidelay", "microloop", "tape")
+    for i in range(20):
+        _connect(
+            engine,
+            engine_name=engines[i % 5],
+            row=i % 5,
+            col=i % 5,
+            bpm=60 + 4 * i,
+        )
+    for _ in range(60):
+        block = engine.generate_block(2048)
+        assert np.max(np.abs(block)) <= 1.0
+        assert not np.any(np.isnan(block))
