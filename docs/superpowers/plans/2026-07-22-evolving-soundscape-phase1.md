@@ -705,7 +705,7 @@ rtk git commit -m "feat(soundscape): add voice-priority budgets and event-probab
   - `ADDITIVE_PRESETS: list[dict]` — 5 presets, each `{"id", "register_bias", "brightness_bias", "attack"}`.
   - `class AdditiveDroneSource(samplerate, seed=None)` with `.render(vid, assignment, timbre, frames, preset) -> np.ndarray` (float64, shape `(frames,)`) and `.sync(active_ids)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_sources.py
@@ -765,12 +765,12 @@ def test_additive_voice_is_dropped_on_sync():
     assert 1 not in src._voices
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_sources'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_sources.py
@@ -831,12 +831,12 @@ class AdditiveDroneSource:
         sync_voices(self._voices, active_ids)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -v`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_sources.py audio_prototype/tests/test_soundscape_sources.py
