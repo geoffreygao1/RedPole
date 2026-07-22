@@ -54,6 +54,71 @@ class AdditiveDroneSource:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+RESONANT_PRESETS = [
+    {"id": "resonant_1", "interval_semitones": (0,), "decay": 0.9975, "excite_gain": 0.6},
+    {"id": "resonant_2", "interval_semitones": (0, 7), "decay": 0.997, "excite_gain": 0.55},
+    {"id": "resonant_3", "interval_semitones": (7, 2), "decay": 0.995, "excite_gain": 0.5},
+    {"id": "resonant_4", "interval_semitones": (0, 7, 10), "decay": 0.993, "excite_gain": 0.45},
+    {"id": "resonant_5", "interval_semitones": (0,), "decay": 0.999, "excite_gain": 0.7},
+]
+
+
+class ResonantPulseSource:
+    """Modal resonator bank excited by sparse BPM-derived impulses (spec 7
+    row 2, 16.3.6 'pulse without conventional drums'). Each resonator is a
+    damped 2nd-order recursive oscillator (numpy-only, no scipy) tuned to
+    the voice's allocated pitch plus fixed intervals above it. Runs a
+    per-sample Python loop -- acceptable for Phase 1's desktop-only,
+    ~8-voice budget; revisit before any browser/Pyodide port."""
+
+    def __init__(self, samplerate, seed=None):
+        self.samplerate = samplerate
+        self._voices = {}
+        self._rng_seed = seed
+
+    def render(self, vid, assignment, bpm, frames, preset):
+        intervals = preset["interval_semitones"]
+        n_res = len(intervals)
+        voice = self._voices.get(vid)
+        if voice is None:
+            rng_seed = None if self._rng_seed is None else self._rng_seed + int(vid) * 131
+            voice = {
+                "rng": np.random.default_rng(rng_seed),
+                "next_pulse": 0,
+                "y1": np.zeros(n_res),
+                "y2": np.zeros(n_res),
+            }
+            self._voices[vid] = voice
+        freqs = np.array([midi_to_hz(assignment.midi + s) for s in intervals])
+        w = 2.0 * np.pi * freqs / self.samplerate
+        decay = preset["decay"]
+        a1 = 2.0 * decay * np.cos(w)
+        a2 = -(decay ** 2)
+
+        pulse_interval = max(1, int(self.samplerate * 60.0 / max(20.0, bpm)))
+        out = np.zeros(frames, dtype=np.float64)
+        y1, y2 = voice["y1"], voice["y2"]
+        rng = voice["rng"]
+        next_pulse = voice["next_pulse"]
+        for i in range(frames):
+            excite = 0.0
+            if next_pulse <= 0:
+                excite = preset["excite_gain"] * float(rng.uniform(0.6, 1.0))
+                next_pulse = pulse_interval
+            next_pulse -= 1
+            y0 = a1 * y1 + a2 * y2 + excite
+            out[i] = np.sum(y0) / n_res
+            y2 = y1
+            y1 = y0
+        voice["y1"], voice["y2"], voice["next_pulse"] = y1, y2, next_pulse
+        peak = np.max(np.abs(out))
+        if peak > 1.0:
+            out /= peak
+        return out
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
 GRANULAR_PRESETS = [
     {"id": "granular_1", "grain_ms": 60, "density_hz": 6, "spread_ms": 40},
     {"id": "granular_2", "grain_ms": 90, "density_hz": 10, "spread_ms": 60},

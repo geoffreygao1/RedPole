@@ -89,3 +89,40 @@ def test_granular_cloud_voice_dropped_on_sync():
     assert 1 in src._voices
     src.sync([])
     assert 1 not in src._voices
+
+from soundscape_sources import RESONANT_PRESETS, ResonantPulseSource
+
+
+def test_resonant_has_five_presets_with_required_keys():
+    assert len(RESONANT_PRESETS) == 5
+    for p in RESONANT_PRESETS:
+        assert {"id", "interval_semitones", "decay", "excite_gain"} <= set(p)
+        assert 0.0 < p["decay"] < 1.0
+
+
+def test_resonant_pulse_is_audible_bounded_and_stable():
+    src = ResonantPulseSource(44100, seed=3)
+    assignment = _assignment()
+    blocks = [src.render(1, assignment, 90.0, 1024, RESONANT_PRESETS[1]) for _ in range(80)]
+    total = np.concatenate(blocks)
+    assert not np.any(np.isnan(total))
+    assert np.max(np.abs(total)) <= 1.0 + 1e-3
+    assert float(np.sqrt(np.mean(total ** 2))) > 0.01
+
+
+def test_resonant_pulse_is_deterministic_given_seed():
+    assignment = _assignment()
+    a = ResonantPulseSource(44100, seed=5)
+    b = ResonantPulseSource(44100, seed=5)
+    out_a = np.concatenate([a.render(1, assignment, 100.0, 512, RESONANT_PRESETS[0]) for _ in range(10)])
+    out_b = np.concatenate([b.render(1, assignment, 100.0, 512, RESONANT_PRESETS[0]) for _ in range(10)])
+    np.testing.assert_array_equal(out_a, out_b)
+
+
+def test_resonant_pulse_voice_dropped_on_sync():
+    src = ResonantPulseSource(44100, seed=3)
+    assignment = _assignment()
+    src.render(1, assignment, 90.0, 256, RESONANT_PRESETS[0])
+    assert 1 in src._voices
+    src.sync([])
+    assert 1 not in src._voices
