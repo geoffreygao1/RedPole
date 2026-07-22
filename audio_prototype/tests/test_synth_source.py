@@ -5,6 +5,8 @@ import modulation as mod
 from synth_source import (
     DRONE_RATIOS,
     DRONE_ROOT_HZ,
+    MAX_DETUNE_CENTS,
+    SynthVoiceBank,
     drone_pitch_hz,
     voice_timbre_from_color,
 )
@@ -64,3 +66,73 @@ def test_color_maps_to_timbre_in_one_place():
     assert bright["brightness"] > dark["brightness"]
     assert 0.0 <= dark["spread"] <= 1.0
     assert 0.0 <= bright["spread"] <= 1.0
+
+
+def _layer(
+    layer_id,
+    hue=0.03,
+    sat=0.68,
+    val=0.94,
+    bpm=90.0,
+    engine="granules",
+    row=1,
+    col=0,
+):
+    return {
+        "id": layer_id,
+        "hue": hue,
+        "sat": sat,
+        "val": val,
+        "bpm": bpm,
+        "engine": engine,
+        "patch_row": row,
+        "patch_col": col,
+    }
+
+
+def test_voice_block_shape_and_lifecycle():
+    bank = SynthVoiceBank(44100, seed=5)
+    layers = [_layer(1, row=1, col=0), _layer(2, row=1, col=1)]
+    blocks = bank.block(layers, 512)
+    assert set(blocks) == {1, 2}
+    for b in blocks.values():
+        assert b.shape == (512,)
+        assert b.dtype == np.float64
+        assert np.max(np.abs(b)) <= 1.0 + 1e-6
+    # dropping a layer tears its voice down
+    bank.block([_layer(1)], 512)
+    assert bank.buffer_for(2) is None
+    assert bank.buffer_for(1) is not None
+
+
+def test_voice_is_a_sustained_tone_not_silence():
+    bank = SynthVoiceBank(44100, seed=5)
+    total = np.concatenate([bank.block([_layer(1)], 1024)[1] for _ in range(40)])
+    assert float(np.sqrt(np.mean(total ** 2))) > 0.05
+
+
+def test_voices_are_detuned_from_each_other():
+    # two voices at the SAME drone slot but different ids must not be identical
+    bank = SynthVoiceBank(44100, seed=5)
+    b1 = bank.buffer_for
+    bank.block([_layer(1, row=1, col=0), _layer(2, row=1, col=0)], 256)
+    v1, v2 = bank.buffer_for(1), bank.buffer_for(2)
+    # different loop lengths (phase-drift) and/or detune => not equal
+    assert v1.shape != v2.shape or not np.allclose(v1[:256], v2[:256])
+
+
+def test_read_position_advances_and_wraps():
+    bank = SynthVoiceBank(44100, seed=5)
+    bank.block([_layer(1)], 1000)
+    p1 = bank.read_pos(1)
+    bank.block([_layer(1)], 1000)
+    p2 = bank.read_pos(1)
+    n = len(bank.buffer_for(1))
+    assert p2 == (p1 + 1000) % n
+
+
+def test_reset_clears_voices():
+    bank = SynthVoiceBank(44100, seed=5)
+    bank.block([_layer(1)], 256)
+    bank.reset()
+    assert bank.buffer_for(1) is None
