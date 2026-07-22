@@ -45,3 +45,31 @@ class SeedBank:
 
     def __len__(self):
         return len(self.tables)
+
+
+# Consonant drone pitch-set: just-intonation ratios over a low root, ordered
+# so arriving voices fill the drone in with registral spread. Assigned by
+# slot/join order, not by color.
+DRONE_ROOT_HZ = 55.0
+DRONE_RATIOS = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0)
+
+
+def drone_pitch_hz(order_index):
+    """Return the consonant drone pitch for a voice order index."""
+    order_index = int(order_index)
+    ratio = DRONE_RATIOS[order_index % len(DRONE_RATIOS)]
+    octave = order_index // len(DRONE_RATIOS)
+    return DRONE_ROOT_HZ * ratio * (2.0 ** octave)
+
+
+def voice_timbre_from_color(hue, sat, val, seed_count):
+    """Map finger-scan color to synth voice timbre in one small pure function."""
+    from modulation import hue_to_unit, sat_to_unit, val_to_unit
+
+    seed_count = int(seed_count)
+    seed_index = int(min(seed_count - 1, int(hue_to_unit(hue) * seed_count)))
+    return {
+        "seed_index": max(0, seed_index),
+        "spread": sat_to_unit(sat),
+        "brightness": val_to_unit(val),
+    }
