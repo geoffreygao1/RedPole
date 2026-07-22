@@ -2471,17 +2471,17 @@ rtk git commit -m "feat(soundscape): add simulated-patch playback harness"
 
 **Interfaces:** none (verification + docs).
 
-- [ ] **Step 1: Run the complete Python suite**
+- [x] **Step 1: Run the complete Python suite**
 
 Run: `rtk python -m pytest tests/ -v` (from `audio_prototype/`)
 Expected: PASS — every pre-existing test plus all new `test_soundscape_*.py` files (roughly 90+ new tests). Confirm zero existing tests changed or broke — this plan is purely additive.
 
-- [ ] **Step 2: Listen to Phase 1 by ear**
+- [x] **Step 2: Listen to Phase 1 by ear**
 
 Run: `rtk python soundscape_prototype.py --duration 90 --patches 8` from `audio_prototype/`.
 Expected: audible, evolving, bounded sound with no clipping/underrun errors from `sounddevice`. This is the point to start the "tune by ear" pass (preset parameters, register limits, gain curves) — expected to sound rough on the first listen; capture notes on what to adjust rather than tuning inline here.
 
-- [ ] **Step 3: Refresh the "Pick up here" brief**
+- [x] **Step 3: Refresh the "Pick up here" brief**
 
 Update `RedPole/AGENTS.md:6-12`:
 
@@ -2497,7 +2497,7 @@ Update `RedPole/AGENTS.md:6-12`:
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 rtk git add RedPole/AGENTS.md
