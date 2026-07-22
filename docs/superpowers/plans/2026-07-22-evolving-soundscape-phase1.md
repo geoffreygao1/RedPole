@@ -294,7 +294,7 @@ rtk git commit -m "feat(soundscape): add shared harmonic field with weighted pit
   - `class PitchAssignment` with attributes `pitch_class, octave, detune_cents, harmonic_role, midi`.
   - `class PitchAllocator(field, occupancy=None)` with `.allocate(vid, rng, density, detune_class="foreground") -> PitchAssignment` and `.release(vid)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_harmony.py
@@ -354,12 +354,12 @@ def test_allocator_release_frees_register_slot():
     assert after == before - 1
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_harmony.py -k "band_for_hz or occupancy or allocator" -v`
 Expected: FAIL — `ImportError: cannot import name 'PitchAllocator'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_harmony.py
@@ -463,12 +463,12 @@ class PitchAllocator:
         self.occupancy.release(vid)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_harmony.py -v`
 Expected: PASS (9 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_harmony.py audio_prototype/tests/test_soundscape_harmony.py

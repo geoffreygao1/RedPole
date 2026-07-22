@@ -57,3 +57,102 @@ class HarmonicField:
 
     def midi_for_role(self, role, octave_offset=0):
         return self.root_midi + self.semitone_for_role(role) + 12 * int(octave_offset)
+
+
+REGISTER_BANDS = (                     # spec 9.4 Hz ranges, spec 17.5 names
+    ("sub", 40.0, 120.0),
+    ("low", 120.0, 500.0),
+    ("mid", 500.0, 2000.0),
+    ("high", 2000.0, 6000.0),
+    ("air", 6000.0, 14000.0),
+)
+
+REGISTER_LIMITS = {"sub": 2, "low": 3, "mid": 5, "high": 7, "air": 8}   # spec 17.5
+
+DETUNE_CENTS_RANGE = {                 # spec 6.6
+    "foreground": 4.0,
+    "background": 8.0,
+    "granular": 15.0,
+    "texture": 30.0,                   # "unconstrained, but low in level"
+}
+
+
+def band_for_hz(hz):
+    for name, lo, hi in REGISTER_BANDS:
+        if lo <= hz < hi:
+            return name
+    return "air" if hz >= REGISTER_BANDS[-1][2] else "sub"
+
+
+class RegisterOccupancy:
+    def __init__(self):
+        self._counts = {name: 0 for name, _, _ in REGISTER_BANDS}
+        self._by_voice = {}
+
+    def counts(self):
+        return dict(self._counts)
+
+    def register(self, vid, band):
+        self.release(vid)
+        self._counts[band] += 1
+        self._by_voice[vid] = band
+
+    def release(self, vid):
+        band = self._by_voice.pop(vid, None)
+        if band is not None:
+            self._counts[band] -= 1
+
+    def is_crowded(self, band):
+        return self._counts[band] >= REGISTER_LIMITS[band]
+
+
+class PitchAssignment:
+    __slots__ = ("pitch_class", "octave", "detune_cents", "harmonic_role", "midi")
+
+    def __init__(self, pitch_class, octave, detune_cents, harmonic_role, midi):
+        self.pitch_class = pitch_class
+        self.octave = octave
+        self.detune_cents = detune_cents
+        self.harmonic_role = harmonic_role
+        self.midi = midi
+
+
+class PitchAllocator:
+    """Assigns each connected voice a pitch from the shared HarmonicField,
+    preferring registers that are not already crowded and pushing sparse
+    upper extensions as density rises (spec 6.5)."""
+
+    def __init__(self, field, occupancy=None):
+        self.field = field
+        self.occupancy = occupancy if occupancy is not None else RegisterOccupancy()
+
+    def allocate(self, vid, rng, density, detune_class="foreground"):
+        role = self.field.weighted_role(rng)
+        octave_offset = 0
+        for _ in range(4):
+            midi = self.field.midi_for_role(role, octave_offset)
+            band = band_for_hz(midi_to_hz(midi))
+            if not self.occupancy.is_crowded(band):
+                break
+            octave_offset += 1
+        else:
+            octave_offset = int(rng.integers(1, 3))
+            midi = self.field.midi_for_role(role, octave_offset)
+            band = band_for_hz(midi_to_hz(midi))
+        if density > 0.6 and band in ("sub", "low"):
+            octave_offset += 1
+            midi = self.field.midi_for_role(role, octave_offset)
+            band = band_for_hz(midi_to_hz(midi))
+        detune_limit = DETUNE_CENTS_RANGE.get(detune_class, DETUNE_CENTS_RANGE["foreground"])
+        detune_cents = float(rng.uniform(-detune_limit, detune_limit))
+        self.occupancy.register(vid, band)
+        return PitchAssignment(
+            pitch_class=self.field.semitone_for_role(role) % 12,
+            octave=octave_offset,
+            detune_cents=detune_cents,
+            harmonic_role=role,
+            midi=midi + detune_cents / 100.0,
+        )
+
+    def release(self, vid):
+        self.occupancy.release(vid)
