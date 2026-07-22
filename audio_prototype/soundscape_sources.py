@@ -263,7 +263,7 @@ class GranularCloudSource:
             self._voices[vid] = voice
         table = voice["table"]
         n = len(table)
-        grain_len = max(32, int(preset["grain_ms"] * 0.001 * self.samplerate))
+        grain_len = min(n, max(32, int(preset["grain_ms"] * 0.001 * self.samplerate)))
         density_hz = max(0.5, preset["density_hz"] * (0.5 + bpm / 180.0))
         interval = max(1, int(self.samplerate / density_hz))
         window_speed = preset["spread_ms"] * 0.001 * self.samplerate / max(1, interval)

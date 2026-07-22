@@ -2150,7 +2150,7 @@ rtk git commit -m "feat(soundscape): add spatial diffusion transform and Transfo
   - `class SoundscapeEngine(samplerate=44100, seed=None, root_midi=62)` with `.connect_patch(hue, sat, val, bpm, source_preset, transform_preset=None) -> int` (patch id), `.disconnect_patch(pid)`, `.generate_block(frames) -> np.ndarray` (float32, shape `(frames,)`).
   - **Note:** this is a fresh, self-contained patch model — it does not use `LayerRegistry`. The spec's two-matrix (output preset + input preset) topology doesn't fit `LayerRegistry.connect_source`'s single-engine/row/col shape; wiring this into the real patch-bay UI is Phase 2, a separate future plan.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_engine.py
@@ -2209,12 +2209,12 @@ def test_transform_preset_audibly_changes_the_voice():
     assert not np.allclose(dry_out, wet_out)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_engine.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_engine'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_engine.py
@@ -2308,12 +2308,12 @@ class SoundscapeEngine:
         return soft_clip(mixed).astype(np.float32)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_engine.py -v`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_engine.py audio_prototype/tests/test_soundscape_engine.py
