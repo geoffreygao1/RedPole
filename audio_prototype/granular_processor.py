@@ -41,30 +41,15 @@ def granular_focus_controls(layer):
 
 
 def granular_octave_ratio(layer):
-    position = hue_to_bipolar(layer["hue"])
-    if position <= -OCTAVE_THRESHOLD:
-        return 0.5
-    if position >= OCTAVE_THRESHOLD:
-        return 2.0
     return 1.0
 
 
 def granular_pitch_ratios(layer):
-    base = granular_octave_ratio(layer)
-    if base < 1.0:
-        return (0.5, 0.75, 1.0)
-    if base > 1.0:
-        return (1.0, 1.5, 2.0)
-    return (0.75, 1.0, 1.5)
+    return (1.0,)
 
 
 def granular_pitch_weights(layer):
-    base = granular_octave_ratio(layer)
-    if base < 1.0:
-        return (0.48, 0.34, 0.18)
-    if base > 1.0:
-        return (0.50, 0.30, 0.20)
-    return (0.46, 0.34, 0.20)
+    return (1.0,)
 
 
 def _spectral_centroid(x, samplerate):

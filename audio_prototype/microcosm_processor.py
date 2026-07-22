@@ -34,36 +34,20 @@ def microcosm_variant(layer):
 
 
 def microloop_pitch_ratios(layer):
-    col = int(clamp(layer.get("patch_col", 2), 0, 4))
-    return (
-        (0.25, 0.5, 1.0),
-        (0.25, 0.5, 1.0, 1.0),
-        (0.25, 0.5, 1.0, 2.0),
-        (0.5, 1.0, 1.0, 2.0),
-        (0.25, 0.5, 1.0, 2.0, 4.0),
-    )[col]
+    return (1.0,)
 
 
 def microloop_pitch_weights(layer):
-    col = int(clamp(layer.get("patch_col", 2), 0, 4))
-    return (
-        (0.24, 0.44, 0.32),
-        (0.20, 0.32, 0.34, 0.14),
-        (0.22, 0.34, 0.24, 0.20),
-        (0.34, 0.30, 0.18, 0.18),
-        (0.22, 0.34, 0.18, 0.16, 0.10),
-    )[col]
+    return (1.0,)
 
 
 def pitch_weights_for_ratios(ratios, low_bias=1.0):
     weights = []
     for ratio in ratios:
-        if ratio < 1.0:
-            weights.append(0.48 * low_bias)
-        elif ratio == 1.0:
-            weights.append(0.34)
+        if ratio == 1.0:
+            weights.append(0.5)
         else:
-            weights.append(0.18 / ratio)
+            weights.append(0.18 / (1.0 + 8.0 * abs(ratio - 1.0)))
     total = sum(weights)
     return tuple(w / total for w in weights)
 
@@ -82,21 +66,8 @@ def microcosm_controls(layer):
         "glitch": (1.1, 0.54),
         "multidelay": (4.2, 1.45),
     }[engine]
-    pitch_ratios = (
-        (0.25, 0.5, 1.0, 2.0, 4.0)
-        if engine == "glitch"
-        else microloop_pitch_ratios(layer)
-        if engine == "microloop"
-        else (0.25, 0.5, 1.0, 2.0)
-    )
-    pitch_weights = (
-        microloop_pitch_weights(layer)
-        if engine == "microloop"
-        else pitch_weights_for_ratios(
-            pitch_ratios,
-            low_bias=1.55 if engine in ("granules", "glitch", "multidelay") else 1.0,
-        )
-    )
+    pitch_ratios = (1.0,)
+    pitch_weights = (1.0,)
     return {
         "interval_seconds": base_interval * timing[0],
         "event_seconds": base_event * timing[1],
@@ -111,7 +82,7 @@ def microcosm_controls(layer):
         "tone": hue_to_bipolar(layer["hue"]),
         "pitch_ratios": pitch_ratios,
         "pitch_weights": pitch_weights,
-        "octave_down_gain": 1.42 if engine == "microloop" else 1.3,
+        "octave_down_gain": 1.0,
         "variant": microcosm_variant(layer),
     }
 
@@ -349,7 +320,7 @@ class MicrocosmProcessor:
         rng = voice["rng"]
         drone_len = max(3072, int(rng.uniform(1.15, 2.1) * controls["grain_seconds"] * self.samplerate))
         start = self._smeared_source(rng, source_pos, controls)
-        ratio = rng.choice((0.5, 1.0), p=(0.62, 0.38))
+        ratio = 1.0
         segment = self._read_ratio(loop, start, drone_len, ratio)
         segment = self._tilt_filter(segment, amount=controls["tone"])
         for i in range(int(rng.integers(2, 5))):
@@ -373,13 +344,7 @@ class MicrocosmProcessor:
         for i in range(chain):
             start = source_pos - direction * int((i + 1) * controls["source_spread_seconds"] * 0.18 * self.samplerate)
             start += int(rng.uniform(-0.03, 0.03) * self.samplerate)
-            ratio = (
-                0.5
-                if i == chain - 1 and controls["tone"] < 0.65
-                else 2.0
-                if i == chain - 1 and controls["tone"] > 0.65
-                else 1.0
-            )
+            ratio = 1.0
             segment = self._read_ratio(loop, start, grain_len, ratio)
             gain = controls["level"] * (0.78 ** i)
             if ratio < 1.0:
@@ -496,7 +461,7 @@ class MicrocosmProcessor:
         start = self._smeared_source(rng, source_pos, controls)
         base = controls["delay_base_seconds"] * 1.2 * self.samplerate
         for i, step in enumerate((0.0, 0.42, 0.9, 1.4)):
-            ratio = 0.5 if i >= 2 else 1.0
+            ratio = 1.0
             segment = self._read_ratio(loop, start + i * tap_len, tap_len, ratio)
             segment = self._tilt_filter(segment, amount=controls["tone"] * (i + 1) / 4.0)
             if i % 2:

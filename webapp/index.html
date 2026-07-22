@@ -11,30 +11,42 @@
   <div id="app" class="hidden">
     <section id="scan-input">
       <h2>Sound Source</h2>
-      <div class="control-row mode-toggle">
-        <button id="mode-loop" class="mode-active">Loop</button>
-        <button id="mode-synth">Synth</button>
-      </div>
       <div class="control-row">
-        <button id="load-loop-button">Load Loop...</button>
+        <button id="mode-switch" class="mode-switch" type="button" aria-pressed="false">
+          <span>Loop</span>
+          <span>Synth</span>
+          <span class="mode-switch-thumb" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="control-row transport-row">
+        <button id="load-loop-button" class="button-secondary">Load Loop...</button>
         <input id="load-loop-file" type="file" accept="audio/*" class="hidden" />
-        <button id="play-pause-button">Play</button>
+        <button id="load-samples-button" class="button-secondary hidden">Load Samples...</button>
+        <input id="load-samples-file" type="file" accept="audio/*" multiple class="hidden" />
+        <button id="play-pause-button" class="button-primary transport-button">Play</button>
       </div>
       <h3>Scan Input</h3>
       <div class="field-block">
         <div class="picker-header">
           <label>Finger color</label>
-          <span id="scan-color-preview" aria-label="Selected scan color"></span>
         </div>
         <canvas id="picker" width="220" height="120"></canvas>
       </div>
-      <div class="control-row">
+      <div class="control-row scan-parameter-row">
         <label>BPM <input id="bpm-input" type="number" value="70" min="20" max="300" /></label>
+        <span id="scan-color-preview" aria-label="Selected scan color"></span>
       </div>
-      <div class="control-row">
-        <button id="random-button">Random</button>
-        <button id="send-button">Send</button>
+      <div class="control-row action-row">
+        <button id="random-button" class="button-secondary">Random</button>
+        <button id="send-button" class="button-primary">Send</button>
       </div>
+    </section>
+
+    <section id="sources">
+      <h2>Sources</h2>
+      <label class="source-option"><input id="auto-assign-sources" type="checkbox" /> Auto assign</label>
+      <p class="panel-hint">Click a source, then an output.</p>
+      <ul id="source-list"></ul>
     </section>
 
     <section id="patch-bay">
@@ -43,11 +55,6 @@
         <label class="patch-control">Wet/Dry <input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
       </div>
       <canvas id="patch-canvas" width="800" height="380"></canvas>
-    </section>
-
-    <section id="sources">
-      <h2>Sources</h2>
-      <ul id="source-list"></ul>
     </section>
 
     <section id="debug">

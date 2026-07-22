@@ -10,7 +10,8 @@ const PATCH_SOURCE_LIMIT = 25;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
-const ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
+const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
+const SYNTH_ROW_LABELS = ["stretch", "delay", "reverb", "stereo", "shape"];
 const TAPE_ROW_INDEX = PATCH_ROW_ENGINES.indexOf("tape");
 const VARIANT_COL_LABELS = ["I", "II", "III", "IV", "V"];
 
@@ -138,6 +139,7 @@ class App {
     // clicks of Send from clobbering each other's color/BPM before their
     // replies arrive.
     this._pendingSources = [];
+    this.selectedSourceId = null;
     this.dragSourceId = null;
     this.dragPos = null;
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
@@ -154,9 +156,11 @@ class App {
     this.underrunReadout = document.getElementById("underrun-readout");
     this.playPauseButton = document.getElementById("play-pause-button");
     this.sourceListEl = document.getElementById("source-list");
-    this.modeLoopButton = document.getElementById("mode-loop");
-    this.modeSynthButton = document.getElementById("mode-synth");
+    this.autoAssignSourcesEl = document.getElementById("auto-assign-sources");
+    this.modeSwitchButton = document.getElementById("mode-switch");
     this.loadLoopButton = document.getElementById("load-loop-button");
+    this.loadSamplesButton = document.getElementById("load-samples-button");
+    this.loadSamplesFile = document.getElementById("load-samples-file");
 
     this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
     this.setupAudio();
@@ -273,8 +277,9 @@ class App {
     document.getElementById("send-button").addEventListener("click", () => this.onSend());
     document.getElementById("random-button").addEventListener("click", () => this.onRandom());
     document.getElementById("play-pause-button").addEventListener("click", () => this.onTogglePlay());
-    this.modeLoopButton.addEventListener("click", () => this.setMode("loop"));
-    this.modeSynthButton.addEventListener("click", () => this.setMode("synth"));
+    this.modeSwitchButton.addEventListener("click", () => {
+      this.setMode(this.mode === "loop" ? "synth" : "loop");
+    });
     document.getElementById("wet-dry-slider").addEventListener("input", (e) => {
       this.worker.postMessage({ type: "set_wet_dry", value: parseFloat(e.target.value) });
     });
@@ -282,10 +287,16 @@ class App {
       document.getElementById("load-loop-file").click();
     });
     document.getElementById("load-loop-file").addEventListener("change", (e) => this.onLoadFile(e));
+    this.loadSamplesButton.addEventListener("click", () => {
+      this.loadSamplesFile.click();
+    });
+    this.loadSamplesFile.addEventListener("change", (e) => this.loadSynthSamples(e));
 
     this.patchCanvas.addEventListener("mousedown", (e) => this.onPatchPress(e));
     this.patchCanvas.addEventListener("mousemove", (e) => this.onPatchDrag(e));
     this.patchCanvas.addEventListener("mouseup", (e) => this.onPatchRelease(e));
+    this.patchCanvas.addEventListener("dragover", (e) => this.onPatchDragOver(e));
+    this.patchCanvas.addEventListener("drop", (e) => this.onPatchDrop(e));
   }
 
   setMode(mode) {
@@ -296,13 +307,16 @@ class App {
     // Mirror the engine's server-side reset: clear all client patch state.
     this.sources.clear();
     this._pendingSources = [];
+    this.selectedSourceId = null;
     this.dragSourceId = null;
     this.dragPos = null;
 
-    // Load Loop is meaningless in synth mode (voices are generated).
+    // Loop mode uses a single loaded loop; synth mode uses local sample-bank
+    // sources when provided, with generated tones only as a fallback.
     this.loadLoopButton.classList.toggle("hidden", mode === "synth");
-    this.modeLoopButton.classList.toggle("mode-active", mode === "loop");
-    this.modeSynthButton.classList.toggle("mode-active", mode === "synth");
+    this.loadSamplesButton.classList.toggle("hidden", mode !== "synth");
+    this.modeSwitchButton.classList.toggle("synth", mode === "synth");
+    this.modeSwitchButton.setAttribute("aria-pressed", mode === "synth" ? "true" : "false");
 
     this.drawPatchBay();
     this.renderSourceList();
@@ -316,7 +330,7 @@ class App {
     }
     if (this.audioContext.state === "suspended") {
       this.audioContext.resume();
-      this.worker.postMessage({ type: "play" });
+      this.worker.postMessage({ type: "play", mode: this.mode });
       this.playPauseButton.textContent = "Pause";
     } else {
       this.audioContext.suspend();
@@ -346,6 +360,33 @@ class App {
     this.worker.postMessage({ type: "load_loop", samples: mono }, [mono.buffer]);
   }
 
+  async loadSynthSamples(event) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    let loaded = 0;
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+      const channels = [];
+      for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+        channels.push(audioBuffer.getChannelData(ch));
+      }
+      const mono = new Float32Array(audioBuffer.length);
+      for (let i = 0; i < audioBuffer.length; i++) {
+        let sum = 0;
+        for (let ch = 0; ch < channels.length; ch++) sum += channels[ch][i];
+        mono[i] = sum / channels.length;
+      }
+      this.worker.postMessage(
+        { type: "load_synth_sample", name: file.name, samples: mono },
+        [mono.buffer]
+      );
+      loaded += 1;
+    }
+    this.statusEl.textContent = `Loaded ${loaded} local synth samples.`;
+    this.statusEl.classList.remove("hidden");
+  }
+
   onSend() {
     // Count confirmed sources plus requests already in flight, so a burst
     // of rapid clicks can't exceed the limit before any "source_added"
@@ -366,31 +407,33 @@ class App {
     this.worker.postMessage({ type: "add_source", hue, sat, val, bpm });
   }
 
-  nextSourceSlot() {
-    const used = new Set(Array.from(this.sources.values(), (source) => source.slot));
-    for (let slot = 0; slot < PATCH_SOURCE_LIMIT; slot++) {
-      if (!used.has(slot)) return slot;
-    }
-    return this.sources.size;
-  }
-
   finishPendingSource(sourceId) {
     // The worker replies to add_source requests strictly in the order it
     // received them, so the oldest queued entry always matches this reply.
     const pending = this._pendingSources.shift();
-    const slot = this.nextSourceSlot();
-    const position = outputSlotPosition(slot);
     this.sources.set(sourceId, {
-      x: position.x,
-      y: position.y,
+      x: null,
+      y: null,
       color: pending.color,
       bpm: pending.bpm,
-      slot,
+      slot: null,
       row: null,
       col: null,
     });
+    if (this.autoAssignSourcesEl.checked) {
+      const slot = this.nextAvailableOutputSlot();
+      if (slot !== null) this.assignSourceToOutput(sourceId, slot);
+    }
     this.drawPatchBay();
     this.renderSourceList();
+  }
+
+  nextAvailableOutputSlot() {
+    const used = new Set(Array.from(this.sources.values(), (source) => source.slot));
+    for (let slot = 0; slot < PATCH_SOURCE_LIMIT; slot++) {
+      if (!used.has(slot)) return slot;
+    }
+    return null;
   }
 
   cellAt(x, y) {
@@ -400,8 +443,16 @@ class App {
     return { row, col };
   }
 
+  outputSlotAt(x, y) {
+    const col = Math.floor((x - OUTPUT_GRID_X) / PATCH_CELL);
+    const row = Math.floor((y - OUTPUT_GRID_Y) / PATCH_CELL);
+    if (row < 0 || row >= PATCH_GRID_ROWS || col < 0 || col >= PATCH_GRID_COLS) return null;
+    return row * PATCH_GRID_COLS + col;
+  }
+
   nearestSource(x, y) {
     for (const [sourceId, source] of this.sources) {
+      if (source.x === null || source.y === null) continue;
       if ((x - source.x) ** 2 + (y - source.y) ** 2 <= 100) return sourceId;
     }
     return null;
@@ -423,28 +474,33 @@ class App {
   }
 
   onPatchRelease(event) {
-    if (this.dragSourceId === null) return;
     const rect = this.patchCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+    const slot = this.outputSlotAt(x, y);
     const cell = this.cellAt(x, y);
+    if (this.dragSourceId === null && this.selectedSourceId !== null && slot !== null) {
+      this.assignSourceToOutput(this.selectedSourceId, slot);
+      this.drawPatchBay();
+      this.renderSourceList();
+      return;
+    }
+    if (this.dragSourceId === null) return;
     const source = this.sources.get(this.dragSourceId);
 
-    if (cell === null) {
+    if (slot !== null) {
+      if (source && source.slot !== slot) {
+        this.assignSourceToOutput(this.dragSourceId, slot);
+      }
+    } else if (cell === null) {
       this.worker.postMessage({ type: "disconnect_source", sourceId: this.dragSourceId });
+      source.x = null;
+      source.y = null;
+      source.slot = null;
       source.row = null;
       source.col = null;
     } else {
-      const engine = cell.row === TAPE_ROW_INDEX && cell.col === 4 ? "reverb" : PATCH_ROW_ENGINES[cell.row];
-      this.worker.postMessage({
-        type: "connect_source",
-        sourceId: this.dragSourceId,
-        engine,
-        row: cell.row,
-        col: cell.col,
-      });
-      source.row = cell.row;
-      source.col = cell.col;
+      this.routeSourceToEffect(this.dragSourceId, cell);
     }
     this.dragPos = null;
     this.dragSourceId = null;
@@ -452,8 +508,98 @@ class App {
     this.renderSourceList();
   }
 
+  onPatchDragOver(event) {
+    if (!event.dataTransfer.types.includes("text/plain")) return;
+    const rect = this.patchCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (this.outputSlotAt(x, y) === null) return;
+    event.preventDefault();
+  }
+
+  onPatchDrop(event) {
+    const sourceId = Number(event.dataTransfer.getData("text/plain"));
+    if (!this.sources.has(sourceId)) return;
+    const rect = this.patchCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const slot = this.outputSlotAt(x, y);
+    if (slot === null) return;
+    event.preventDefault();
+    this.assignSourceToOutput(sourceId, slot);
+    this.dragSourceId = null;
+    this.dragPos = null;
+    this.drawPatchBay();
+    this.renderSourceList();
+  }
+
+  onSourceListDragStart(event, sourceId) {
+    event.dataTransfer.setData("text/plain", String(sourceId));
+    event.dataTransfer.effectAllowed = "move";
+    this.dragSourceId = sourceId;
+  }
+
+  onSourceListClick(sourceId) {
+    this.selectedSourceId = this.selectedSourceId === sourceId ? null : sourceId;
+    this.renderSourceList();
+  }
+
+  assignSourceToOutput(sourceId, slot) {
+    const source = this.sources.get(sourceId);
+    if (!source) return;
+    for (const [otherId, other] of this.sources) {
+      if (otherId !== sourceId && other.slot === slot) {
+        this.worker.postMessage({ type: "disconnect_source", sourceId: otherId });
+        other.x = null;
+        other.y = null;
+        other.slot = null;
+        other.row = null;
+        other.col = null;
+      }
+    }
+
+    const row = Math.floor(slot / PATCH_GRID_COLS);
+    const col = slot % PATCH_GRID_COLS;
+    const position = outputSlotPosition(slot);
+    source.slot = slot;
+    source.x = position.x;
+    source.y = position.y;
+    if (source.row !== null || source.col !== null) {
+      this.worker.postMessage({ type: "disconnect_source", sourceId });
+    }
+    source.row = null;
+    source.col = null;
+    this.selectedSourceId = null;
+  }
+
+  routeSourceToEffect(sourceId, cell) {
+    const source = this.sources.get(sourceId);
+    if (!source || source.slot === null) return;
+    const row = cell.row;
+    const col = cell.col;
+    const engine =
+      this.mode === "loop" && row === TAPE_ROW_INDEX && col === 4
+        ? "reverb"
+        : PATCH_ROW_ENGINES[row];
+    this.worker.postMessage({
+      type: "connect_source",
+      sourceId,
+      engine,
+      row,
+      col,
+      outputSlot: source.slot,
+    });
+    source.row = row;
+    source.col = col;
+  }
+
+  rowLabels() {
+    return this.mode === "synth" ? SYNTH_ROW_LABELS : LOOP_ROW_LABELS;
+  }
+
   drawPatchBay() {
     const ctx = this.patchCanvas.getContext("2d");
+    const rowLabels = this.rowLabels();
     ctx.fillStyle = "#161616";
     ctx.fillRect(0, 0, this.patchCanvas.width, this.patchCanvas.height);
 
@@ -466,6 +612,7 @@ class App {
     const outputColors = new Map();
     const outputLabels = new Map();
     for (const [sourceId, source] of this.sources) {
+      if (source.slot === null) continue;
       outputColors.set(source.slot, source.color);
       outputLabels.set(source.slot, String(sourceId));
     }
@@ -505,7 +652,7 @@ class App {
       ctx.fillStyle = "#d5d5d5";
       ctx.font = "12px sans-serif";
       ctx.textAlign = "right";
-      ctx.fillText(ROW_LABELS[row], PATCH_GRID_X - 12, PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2);
+      ctx.fillText(rowLabels[row], PATCH_GRID_X - 12, PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2);
       ctx.textAlign = "left";
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
@@ -545,13 +692,17 @@ class App {
 
   cellLabel(row, col) {
     if (row === null) return "unconnected";
-    return `${ROW_LABELS[row]} / ${VARIANT_COL_LABELS[col]}`;
+    return `${this.rowLabels()[row]} / ${VARIANT_COL_LABELS[col]}`;
   }
 
   renderSourceList() {
     this.sourceListEl.innerHTML = "";
     for (const [sourceId, source] of this.sources) {
       const li = document.createElement("li");
+      li.classList.toggle("selected", this.selectedSourceId === sourceId);
+      li.draggable = true;
+      li.addEventListener("dragstart", (event) => this.onSourceListDragStart(event, sourceId));
+      li.addEventListener("click", () => this.onSourceListClick(sourceId));
 
       const swatch = document.createElement("span");
       swatch.className = "swatch";
@@ -559,15 +710,29 @@ class App {
 
       const label = document.createElement("span");
       label.className = "source-cell";
-      label.textContent = `${Math.round(source.bpm)} BPM - ${this.cellLabel(source.row, source.col)}`;
+      label.textContent = this.sourceShortLabel(source);
 
       const removeButton = document.createElement("button");
-      removeButton.textContent = "Remove";
-      removeButton.addEventListener("click", () => this.onRemoveSource(sourceId));
+      removeButton.className = "icon-button";
+      removeButton.textContent = "\u00d7";
+      removeButton.setAttribute("aria-label", "Remove source");
+      removeButton.title = "Remove source";
+      removeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.onRemoveSource(sourceId);
+      });
 
       li.append(swatch, label, removeButton);
       this.sourceListEl.appendChild(li);
     }
+  }
+
+  sourceShortLabel(source) {
+    const bpm = Math.round(source.bpm);
+    if (source.slot === null) return `${bpm} BPM`;
+    const output = `Out ${source.slot + 1}`;
+    if (source.row === null) return `${bpm} - ${output}`;
+    return `${bpm} - ${output} -> ${this.rowLabels()[source.row]} ${VARIANT_COL_LABELS[source.col]}`;
   }
 
   onRemoveSource(sourceId) {

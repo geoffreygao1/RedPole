@@ -15,6 +15,7 @@ from modulation import RmsLimiter, combine_layers, sat_to_unit, soft_clip, val_t
 from microcosm_processor import MicrocosmProcessor
 from reverb import SchroederReverb
 from spectral_stretch import SpectralSmear
+from synth_bath_processor import SynthBathProcessor
 from synth_source import SynthVoiceBank
 from tape_modulator import TapeModulator, tape_column_controls
 from wet_bus import WetBusManager
@@ -25,6 +26,8 @@ REVERB_DEFAULT_FEEDBACK = 0.84
 REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1
 MICRO_FAMILIES = ("microloop", "granules", "glitch", "multidelay")
+SYNTH_WET_VOICE_BUDGET = 5
+SAMPLE_SYNTH_WET_VOICE_BUDGET = 2
 
 
 def bpm_to_reverb_feedback(bpm):
@@ -61,12 +64,18 @@ class WebEngine:
         self.wet_bus = WetBusManager(samplerate)
         self.entry_gestures = EntryGestureTracker(samplerate)
         self.wet_limiter = RmsLimiter(target_rms=0.35)
+        self.synth_output_limiter = RmsLimiter(target_rms=0.28, attack=0.72, release=0.01)
         self.reverb_mix = 0.975
         self.wet_dry = 0.5
         self._rv_feedback = REVERB_DEFAULT_FEEDBACK
         self._rv_cutoff = REVERB_DEFAULT_CUTOFF
         self.loop_array = None
+        self.tone_mode = "scan"
+        self.harmony_mode = "open"
+        self.synth_wet_voice_budget = SYNTH_WET_VOICE_BUDGET
+        self._synth_wet_budget_cursor = 0
         self.synth = SynthVoiceBank(samplerate, seed=seed)
+        self.synth_bath = SynthBathProcessor(samplerate, seed=seed)
         self.spectral_smear = SpectralSmear(samplerate, seed=seed)
         self.synth_tape = {}
 
@@ -80,7 +89,30 @@ class WebEngine:
         self.entry_gestures = EntryGestureTracker(self.samplerate)
         self.spectral_smear = SpectralSmear(self.samplerate, seed=self._seed)
         self.synth.reset()
+        self.synth_bath = SynthBathProcessor(self.samplerate, seed=self._seed)
         self.synth_tape = {}
+        self.synth_output_limiter = RmsLimiter(target_rms=0.28, attack=0.72, release=0.01)
+        self._synth_wet_budget_cursor = 0
+
+    def ensure_mode(self, mode):
+        """Switch mode without clearing already-sent source/patch state."""
+        if mode not in ("loop", "synth"):
+            raise ValueError(f"Unknown mode {mode!r}; expected 'loop' or 'synth'")
+        self.mode = mode
+
+    def set_synth_options(self, tone_mode=None, harmony_mode=None):
+        """Change synth audition options without clearing patch/source state."""
+        if tone_mode is not None:
+            self.tone_mode = tone_mode
+        if harmony_mode is not None:
+            self.harmony_mode = harmony_mode
+        self.synth.set_options(
+            tone_mode=self.tone_mode, harmony_mode=self.harmony_mode
+        )
+        self.synth_tape = {}
+        self.microcosm = MicrocosmProcessor(self.samplerate, seed=self._seed)
+        self.synth_bath = SynthBathProcessor(self.samplerate, seed=self._seed)
+        self.spectral_smear = SpectralSmear(self.samplerate, seed=self._seed)
 
     def load_loop(self, samples):
         array = np.asarray(samples, dtype=np.float32)
@@ -88,6 +120,9 @@ class WebEngine:
         if len(array) > max_len:
             array = array[:max_len]
         self.loop_array = array
+
+    def load_synth_sample(self, name, samples):
+        self.synth.load_sample(name, samples)
 
     def generate_block(self, frames):
         if self.mode == "synth":
@@ -222,41 +257,50 @@ class WebEngine:
 
         dry = np.zeros(frames, dtype=np.float64)
         for layer in layers:
-            gain = 0.25 + 0.5 * val_to_unit(layer["val"])
+            gain = 0.18 + 0.38 * val_to_unit(layer["val"])
             gain *= 1.0 + entry.engine_gain(layer["engine"])
             dry += voice_blocks[layer["id"]] * gain
         dry /= max(1.0, np.sqrt(len(layers)))
+        dry *= 1.0 / (1.0 + 0.18 * max(0, len(layers) - 1))
 
-        micro_layers = [l for l in layers if l["engine"] in MICRO_FAMILIES]
-        tape_layers = [l for l in layers if l["engine"] == "tape"]
+        sample_backed = self.synth.sample_count() > 0
+        budgeted_layers = self._budget_synth_wet_layers(layers)
+        bath_layers = [
+            l
+            for l in budgeted_layers
+            if l["engine"] in MICRO_FAMILIES or l["engine"] == "tape"
+        ]
         reverb_layers = [l for l in layers if l["engine"] == "reverb"]
         source_arrays = {vid: self.synth.buffer_for(vid) for vid in voice_blocks}
         source_positions = {vid: self.synth.read_pos(vid) for vid in voice_blocks}
 
         wet = np.zeros(frames, dtype=np.float64)
-        if micro_layers:
-            wet += self.microcosm.process(
-                np.zeros(0, dtype=np.float32),
+        if bath_layers:
+            wet += self.synth_bath.process(
                 frames,
-                micro_layers,
+                bath_layers,
                 source_arrays=source_arrays,
                 source_positions=source_positions,
             )
-        wet += self._synth_tape_block(tape_layers, frames, entry)
 
-        n_wet = len(micro_layers) + len(tape_layers)
+        n_wet = len(bath_layers)
         n_rv = len(reverb_layers)
         managed_wet = np.asarray(
             self.wet_bus.process(wet, wet_voice_count=n_wet, reverb_layer_count=n_rv),
             dtype=np.float32,
         )
 
-        suspension = min(1.0, 0.25 + 0.7 * crowd.density)
-        smear = min(1.0, 0.35 + 0.5 * crowd.density)
-        smeared = np.asarray(
-            self.spectral_smear.process(managed_wet, suspension=suspension, smear=smear),
-            dtype=np.float64,
-        )
+        if sample_backed:
+            smeared = np.asarray(managed_wet, dtype=np.float64)
+        else:
+            suspension = min(1.0, 0.25 + 0.7 * crowd.density)
+            smear = min(1.0, 0.35 + 0.5 * crowd.density)
+            smeared = np.asarray(
+                self.spectral_smear.process(
+                    managed_wet, suspension=suspension, smear=smear
+                ),
+                dtype=np.float64,
+            )
 
         target_fb = min(0.985, 0.9 + 0.06 * crowd.density)
         target_cut = 3000.0 + 4000.0 * (1.0 - crowd.density)
@@ -273,4 +317,22 @@ class WebEngine:
         mix = float(np.clip(self.wet_dry, 0.0, 1.0))
         dry_gain = min(1.0, 2.0 * (1.0 - mix))
         wet_gain = min(1.0, 2.0 * mix)
-        return soft_clip(dry_gain * dry + wet_gain * wet_final).astype(np.float32)
+        mixed = self.synth_output_limiter.process(dry_gain * dry + wet_gain * wet_final)
+        return (0.88 * soft_clip(0.86 * mixed, threshold=0.78)).astype(np.float32)
+
+    def _budget_synth_wet_layers(self, layers):
+        wet_layers = [
+            layer
+            for layer in layers
+            if layer["engine"] in MICRO_FAMILIES or layer["engine"] == "tape"
+        ]
+        if self.synth.sample_count() > 0:
+            budget = SAMPLE_SYNTH_WET_VOICE_BUDGET
+        else:
+            budget = self.synth_wet_voice_budget
+        budget = max(1, int(budget))
+        if len(wet_layers) <= budget:
+            return wet_layers
+        start = self._synth_wet_budget_cursor % len(wet_layers)
+        self._synth_wet_budget_cursor += budget
+        return [wet_layers[(start + i) % len(wet_layers)] for i in range(budget)]

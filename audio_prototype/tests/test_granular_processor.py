@@ -121,30 +121,30 @@ def _dominant_freq(signal, sr=SR):
     return np.fft.rfftfreq(len(signal), 1.0 / sr)[np.argmax(mag)]
 
 
-def test_hue_selects_octave_only_grain_pitch():
-    assert granular_octave_ratio(_layer(1, hue=mod.FINGER_HUE_MIN)) == pytest.approx(0.5)
+def test_hue_does_not_shift_grain_pitch_center():
+    assert granular_octave_ratio(_layer(1, hue=mod.FINGER_HUE_MIN)) == pytest.approx(1.0)
     assert granular_octave_ratio(_layer(1, hue=(mod.FINGER_HUE_MIN + mod.FINGER_HUE_MAX) / 2)) == pytest.approx(1.0)
-    assert granular_octave_ratio(_layer(1, hue=mod.FINGER_HUE_MAX)) == pytest.approx(2.0)
+    assert granular_octave_ratio(_layer(1, hue=mod.FINGER_HUE_MAX)) == pytest.approx(1.0)
 
 
-def test_granular_pitch_ratios_are_harmonic_around_octave_anchor():
-    assert granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MIN)) == pytest.approx((0.5, 0.75, 1.0))
-    assert granular_pitch_ratios(_layer(1, hue=(mod.FINGER_HUE_MIN + mod.FINGER_HUE_MAX) / 2)) == pytest.approx((0.75, 1.0, 1.5))
-    assert granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MAX)) == pytest.approx((1.0, 1.5, 2.0))
+def test_granular_pitch_ratios_are_unison_only():
+    assert granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MIN)) == pytest.approx((1.0,))
+    assert granular_pitch_ratios(_layer(1, hue=(mod.FINGER_HUE_MIN + mod.FINGER_HUE_MAX) / 2)) == pytest.approx((1.0,))
+    assert granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MAX)) == pytest.approx((1.0,))
 
 
-def test_granular_pitch_weights_emphasize_lower_ratios():
+def test_granular_pitch_weights_use_only_unison():
     low = dict(zip(granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MIN)), granular_pitch_weights(_layer(1, hue=mod.FINGER_HUE_MIN))))
     center_hue = (mod.FINGER_HUE_MIN + mod.FINGER_HUE_MAX) / 2
     center = dict(zip(granular_pitch_ratios(_layer(1, hue=center_hue)), granular_pitch_weights(_layer(1, hue=center_hue))))
     high = dict(zip(granular_pitch_ratios(_layer(1, hue=mod.FINGER_HUE_MAX)), granular_pitch_weights(_layer(1, hue=mod.FINGER_HUE_MAX))))
 
-    assert low[0.5] > low[1.0]
-    assert center[0.75] > center[1.5]
-    assert high[1.0] > high[2.0]
+    assert low == {1.0: 1.0}
+    assert center == {1.0: 1.0}
+    assert high == {1.0: 1.0}
 
 
-def test_granular_repitching_varies_between_harmonic_ratios():
+def test_granular_events_do_not_repitch():
     class RecordingGranularProcessor(GranularProcessor):
         def __init__(self, samplerate, seed=None):
             super().__init__(samplerate, seed=seed)
@@ -161,8 +161,7 @@ def test_granular_repitching_varies_between_harmonic_ratios():
     for i in range(30):
         proc.process(loop, 1024, [layer], source_pos=i * 1024)
 
-    assert set(proc.ratios).issubset({1.0, 1.5, 2.0})
-    assert len(set(proc.ratios)) > 1
+    assert set(proc.ratios) == {1.0}
 
 
 def test_output_length_and_state_persist():

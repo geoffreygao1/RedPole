@@ -93,28 +93,25 @@ def test_microloop_controls_are_slow_loops_not_glitch_stutters():
     assert microloop["event_seconds"] >= 0.85
 
 
-def test_microloop_patch_column_controls_octave_spread():
+def test_microloop_patch_columns_keep_pitch_at_unison():
     base = {"id": 1, "engine": "microloop", "hue": 0.0, "sat": 0.8, "val": 1.0, "bpm": 120.0}
     gentle = microcosm_controls({**base, "patch_col": 0})
     dramatic = microcosm_controls({**base, "patch_col": 4})
 
-    assert gentle["pitch_ratios"] == (0.25, 0.5, 1.0)
-    assert dramatic["pitch_ratios"] == (0.25, 0.5, 1.0, 2.0, 4.0)
-    assert set(dramatic["pitch_ratios"]).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
+    assert gentle["pitch_ratios"] == (1.0,)
+    assert dramatic["pitch_ratios"] == (1.0,)
 
 
-def test_microloop_patch_column_five_emphasizes_octave_down():
+def test_microloop_patch_column_five_keeps_unison_prominent():
     base = {"id": 1, "engine": "microloop", "hue": 0.0, "sat": 0.8, "val": 1.0, "bpm": 120.0}
     controls = microcosm_controls({**base, "patch_col": 4})
     weights = dict(zip(controls["pitch_ratios"], controls["pitch_weights"]))
 
-    assert weights[0.25] > weights[2.0]
-    assert weights[0.5] > weights[1.0]
-    assert weights[0.5] > weights[2.0]
-    assert controls["octave_down_gain"] >= 1.35
+    assert weights == {1.0: 1.0}
+    assert controls["octave_down_gain"] == 1.0
 
 
-def test_pitch_modifying_microcosm_families_emphasize_lower_octaves():
+def test_microcosm_families_do_not_shift_pitch():
     for engine in ("microloop", "granules", "glitch", "multidelay"):
         controls = microcosm_controls(
             _layer(1, engine=engine, hue=0.0, sat=0.8, val=1.0, bpm=120.0)
@@ -122,9 +119,9 @@ def test_pitch_modifying_microcosm_families_emphasize_lower_octaves():
         )
         weights = dict(zip(controls["pitch_ratios"], controls["pitch_weights"]))
 
-        if 0.5 in weights and 2.0 in weights:
-            assert weights[0.5] > weights[2.0]
-        assert controls["octave_down_gain"] >= 1.25
+        assert controls["pitch_ratios"] == (1.0,)
+        assert weights == {1.0: 1.0}
+        assert controls["octave_down_gain"] == 1.0
 
 
 def test_microloop_pitch_ratios_and_weights_match_for_all_patch_columns():
@@ -135,19 +132,19 @@ def test_microloop_pitch_ratios_and_weights_match_for_all_patch_columns():
         assert len(controls["pitch_ratios"]) == len(controls["pitch_weights"])
 
 
-def test_microloop_uses_octave_ratios_only():
+def test_microloop_uses_unison_ratios_only():
     base = {"id": 1, "engine": "microloop", "hue": 0.0, "sat": 0.8, "val": 1.0, "bpm": 120.0}
 
     for col in range(5):
         controls = microcosm_controls({**base, "patch_col": col})
-        assert set(controls["pitch_ratios"]).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
+        assert controls["pitch_ratios"] == (1.0,)
 
 
-def test_glitch_controls_emphasize_octave_pitch_variation():
+def test_glitch_controls_use_no_pitch_variation():
     layer = _layer(1, engine="glitch", hue=0.99, sat=0.8, val=1.0, bpm=120.0)
     controls = microcosm_controls(layer)
 
-    assert controls["pitch_ratios"] == (0.25, 0.5, 1.0, 2.0, 4.0)
+    assert controls["pitch_ratios"] == (1.0,)
 
 
 def test_granules_use_longer_grain_windows_than_glitch():
@@ -211,7 +208,7 @@ def test_microloop_patch_column_five_selects_jump_not_glide():
     assert microcosm_variant({**layer, "patch_col": 4}) == "jump"
 
 
-def test_microloop_jump_uses_discrete_octave_reads_not_ratio_glide():
+def test_microloop_jump_uses_unison_reads_not_ratio_glide():
     class SpyProcessor(MicrocosmProcessor):
         def __init__(self):
             super().__init__(SR, seed=1)
@@ -237,7 +234,7 @@ def test_microloop_jump_uses_discrete_octave_reads_not_ratio_glide():
 
     assert proc.curve_reads == 0
     assert proc.ratio_reads
-    assert set(proc.ratio_reads).issubset({0.25, 0.5, 1.0, 2.0, 4.0})
+    assert set(proc.ratio_reads) == {1.0}
 
 
 def test_variants_within_family_have_distinct_source_rearrangements():

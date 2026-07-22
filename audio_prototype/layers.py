@@ -52,17 +52,20 @@ class LayerRegistry:
             }
             return source_id
 
-    def connect_source(self, source_id, engine, row, col):
+    def connect_source(self, source_id, engine, row, col, output_slot=None):
         if engine not in ENGINES:
             raise ValueError(f"Unknown engine {engine!r}; expected one of {ENGINES}")
+        route = {
+            "engine": engine,
+            "patch_row": row,
+            "patch_col": col,
+        }
+        if output_slot is not None:
+            route["output_slot"] = int(output_slot)
         with self._lock:
             source = self._sources[source_id]
-            source["route"] = {
-                "engine": engine,
-                "patch_row": row,
-                "patch_col": col,
-            }
-            self._layers[source_id] = {
+            source["route"] = route
+            layer = {
                 "id": source_id,
                 "source_id": source_id,
                 "hue": source["hue"],
@@ -73,6 +76,9 @@ class LayerRegistry:
                 "patch_row": row,
                 "patch_col": col,
             }
+            if output_slot is not None:
+                layer["output_slot"] = int(output_slot)
+            self._layers[source_id] = layer
 
     def disconnect_source(self, source_id):
         with self._lock:

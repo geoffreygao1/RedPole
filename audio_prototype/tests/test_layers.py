@@ -97,6 +97,16 @@ def test_connect_source_creates_active_layer_with_patch_metadata():
     }
 
 
+def test_connect_source_preserves_output_slot_separately_from_input_patch():
+    reg = LayerRegistry()
+    source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)
+
+    reg.connect_source(source_id, engine="granules", row=1, col=3, output_slot=17)
+
+    assert reg.snapshot()[0]["output_slot"] == 17
+    assert reg.sources_snapshot()[0]["route"]["output_slot"] == 17
+
+
 def test_reconnecting_source_moves_existing_route():
     reg = LayerRegistry()
     source_id = reg.add_source(hue=0.1, sat=0.5, val=0.5, bpm=70)

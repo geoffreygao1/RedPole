@@ -4,10 +4,10 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — web app now has Loop + Synth modes; synth generates per-voice detuned drones with a density-driven spectral-smear wash. Firmware/TD integration still WIP.
-- **Last session:** 2026-07-22 — implemented synth mode (synth_source.py, spectral_stretch.py, WebEngine.mode branch, UI toggle) per docs/superpowers/plans/2026-07-22-synth-mode.md.
+- **Status:**       Prototype — web app now has Loop + Synth modes; synth mode is local sample-bank backed when the user loads files through the browser, with generated tones only as a fallback. Output slots own sample/source identity, input cells only effect the signal, synth effect rows are Stretch/Delay/Reverb/Stereo/Shape, playback stays unison/no detune, sample-backed mode uses a 2-voice rotating wet/effect budget and skips global spectral smear for Pyodide headroom, while generated fallback keeps its 5-voice wet budget. `webapp/assets/samples/` is gitignored for licensed local packs. Firmware/TD integration still WIP.
+- **Last session:** 2026-07-22 — moved synth mode back toward sample-backed sources for the MVP and then reduced dense sample-mode CPU cost: added browser multi-file sample loading, Pyodide `load_synth_sample`, `SynthVoiceBank.load_sample`, sample-backed source selection by output slot, precomputed BPM-shaped sample envelopes, Stretch/Delay/Reverb/Stereo/Shape synth effect labels/roles, mode-aware loop-only reverb shortcut routing, sample-backed 2-voice wet budgeting, spectral-smear bypass for loaded samples, larger worker blocks/prebuffer, and tests/spec/plan docs for the local sample soundbath direction.
 - **Next up:**
-  - Tune by ear: color→timbre map (synth_source.voice_timbre_from_color), drone pitch-set, and whether the spectral smear should also run per-voice (spec §10).
+  - Tune by ear with the actual local samples: slot-to-sample ordering, BPM envelope curves, color-to-effect mapping, Stretch/Delay/Reverb/Stereo/Shape row intensity, and wet budget size.
   - Document the firmware serial message shape (base64 JPEG framing).
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 

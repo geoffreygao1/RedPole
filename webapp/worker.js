@@ -16,11 +16,13 @@ const PYTHON_FILES = [
   "crowd.py",
   "spectral_stretch.py",
   "synth_source.py",
+  "synth_bath_processor.py",
   "web_engine.py",
 ];
-const BLOCK_FRAMES = 4096;
-const HIGH_WATERMARK_SECONDS = 0.3;
+const BLOCK_FRAMES = 8192;
+const HIGH_WATERMARK_SECONDS = 0.75;
 const GENERATE_INTERVAL_MS = 40;
+const PYTHON_SOURCE_VERSION = Date.now().toString();
 
 let pyodide = null;
 let sampleRate = 44100;
@@ -32,7 +34,10 @@ async function fetchPythonSource(name) {
   // ../audio_prototype/<name>.py resolves correctly both in local dev
   // (serving the whole repo root) and once deployed (Task 6 publishes
   // audio_prototype/ as a sibling of webapp/, matching this relative path).
-  const response = await fetch(`../audio_prototype/${name}`);
+  const response = await fetch(
+    `../audio_prototype/${name}?v=${PYTHON_SOURCE_VERSION}`,
+    { cache: "no-store" }
+  );
   if (!response.ok) {
     throw new Error(`Failed to fetch ${name}: ${response.status}`);
   }
@@ -107,6 +112,13 @@ self.onmessage = async (event) => {
       pyodide.runPython("engine.load_loop(_samples)");
       bufferedAheadFrames = 0;
       if (audioPort) audioPort.postMessage({ type: "flush" });
+    } else if (msg.type === "load_synth_sample") {
+      pyodide.globals.set("_samples", msg.samples);
+      pyodide.runPython(
+        `engine.load_synth_sample(${JSON.stringify(msg.name)}, _samples)`
+      );
+      bufferedAheadFrames = 0;
+      if (audioPort) audioPort.postMessage({ type: "flush" });
     } else if (msg.type === "add_source") {
       const sourceId = pyodide.runPython(
         `engine.registry.add_source(hue=${msg.hue}, sat=${msg.sat}, val=${msg.val}, bpm=${msg.bpm})`
@@ -116,7 +128,7 @@ self.onmessage = async (event) => {
       pyodide.runPython(
         `engine.registry.connect_source(${msg.sourceId}, engine=${JSON.stringify(
           msg.engine
-        )}, row=${msg.row}, col=${msg.col})`
+        )}, row=${msg.row}, col=${msg.col}, output_slot=${msg.outputSlot})`
       );
     } else if (msg.type === "disconnect_source") {
       pyodide.runPython(`engine.registry.disconnect_source(${msg.sourceId})`);
@@ -126,9 +138,20 @@ self.onmessage = async (event) => {
       pyodide.runPython(`engine.set_mode(${JSON.stringify(msg.mode)})`);
       bufferedAheadFrames = 0;
       if (audioPort) audioPort.postMessage({ type: "flush" });
+    } else if (msg.type === "set_synth_options") {
+      pyodide.runPython(
+        `engine.set_synth_options(tone_mode=${JSON.stringify(
+          msg.toneMode
+        )}, harmony_mode=${JSON.stringify(msg.harmonyMode)})`
+      );
+      bufferedAheadFrames = 0;
+      if (audioPort) audioPort.postMessage({ type: "flush" });
     } else if (msg.type === "set_wet_dry") {
       pyodide.runPython(`engine.wet_dry = ${msg.value}`);
     } else if (msg.type === "play") {
+      if (msg.mode === "loop" || msg.mode === "synth") {
+        pyodide.runPython(`engine.ensure_mode(${JSON.stringify(msg.mode)})`);
+      }
       paused = false;
       bufferedAheadFrames = 0;
       if (audioPort) audioPort.postMessage({ type: "flush" });
