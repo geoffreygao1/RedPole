@@ -98,6 +98,7 @@ def test_sample_backed_synth_uses_smaller_rotating_wet_budget():
     first = engine._budget_synth_wet_layers(engine.registry.snapshot())
     second = engine._budget_synth_wet_layers(engine.registry.snapshot())
 
+    assert SAMPLE_SYNTH_WET_VOICE_BUDGET == 1
     assert len(first) == SAMPLE_SYNTH_WET_VOICE_BUDGET
     assert len(second) == SAMPLE_SYNTH_WET_VOICE_BUDGET
     assert {layer["id"] for layer in first} != {layer["id"] for layer in second}
@@ -169,6 +170,23 @@ def test_sample_backed_synth_skips_global_spectral_smear():
         raise AssertionError("sample-backed synth should skip global spectral smear")
 
     engine.spectral_smear.process = fail_if_smear_is_used
+    out = engine.generate_block(1024)
+
+    assert float(np.sqrt(np.mean(out.astype(np.float64) ** 2))) > 0.0
+
+
+def test_sample_backed_synth_skips_global_reverb_processor():
+    engine = WebEngine(samplerate=SR, seed=1)
+    engine.set_mode("synth")
+    engine.wet_dry = 1.0
+    sample = np.sin(2.0 * np.pi * 216.0 * np.arange(SR) / SR).astype(np.float32)
+    engine.load_synth_sample("local-pad-C.wav", sample)
+    _connect(engine, engine_name="granules", row=1, col=0, output_slot=0)
+
+    def fail_if_reverb_is_used(*args, **kwargs):
+        raise AssertionError("sample-backed synth should use lightweight row effects only")
+
+    engine.reverb.process = fail_if_reverb_is_used
     out = engine.generate_block(1024)
 
     assert float(np.sqrt(np.mean(out.astype(np.float64) ** 2))) > 0.0

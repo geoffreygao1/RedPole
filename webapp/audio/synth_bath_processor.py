@@ -54,7 +54,7 @@ class SynthBathProcessor:
         self._voices = {}
         self.debug_read_ratios = []
 
-    def process(self, frames, layers, source_arrays, source_positions=None):
+    def process(self, frames, layers, source_arrays, source_positions=None, low_cpu=False):
         self.debug_read_ratios = []
         if not layers:
             self._voices = {}
@@ -75,7 +75,10 @@ class SynthBathProcessor:
             controls = synth_bath_controls(layer)
             source_pos = int(source_positions.get(vid, 0))
             block = self._read_unison(np.asarray(source, dtype=np.float64), source_pos, frames)
-            out += self._process_role(block, voice, controls)
+            if low_cpu:
+                out += self._process_role_light(block, voice, controls)
+            else:
+                out += self._process_role(block, voice, controls)
 
         self._voices = {k: v for k, v in self._voices.items() if k in active}
         if active:
@@ -136,6 +139,66 @@ class SynthBathProcessor:
         shaped = soft_clip(body * (1.1 + 0.22 * controls["column"]), threshold=0.72)
         tail = self._delay(voice, "shape_tail", shaped, 0.24 + 0.04 * controls["column"], 0.16, 0.14)
         return (0.72 * shaped + tail) * (0.72 + 0.18 * lfo) * controls["level"]
+
+    def _process_role_light(self, x, voice, controls):
+        role = controls["role"]
+        phase = voice["phase"] + 2.0 * np.pi * controls["motion_hz"] * len(x) / self.samplerate
+        voice["phase"] = phase % (2.0 * np.pi)
+        lfo = 0.5 + 0.5 * np.sin(
+            phase + 2.0 * np.pi * controls["motion_hz"] * np.arange(len(x)) / self.samplerate
+        )
+        swell = 0.66 + controls["depth"] * 0.18 * lfo
+        col = controls["column"]
+
+        if role == "stretch":
+            body = self._smooth_fast(voice, "stretch_body", x, taps=64 + 16 * col)
+            smear = self._delay_fast(voice, "stretch_smear", body, 0.32 + 0.05 * col, 0.24)
+            return (0.50 * body + smear) * swell * controls["level"]
+        if role == "delay":
+            tone = self._smooth_fast(voice, "delay_tone", x, taps=14 + 4 * col)
+            a = self._delay_fast(voice, "delay_a", tone, 0.13 + 0.04 * col, 0.20)
+            b = self._delay_fast(voice, "delay_b", tone, 0.29 + 0.06 * col, 0.17)
+            return (0.30 * tone + a + b) * (0.68 + 0.20 * controls["diffusion"])
+        if role == "reverb":
+            washed = self._smooth_fast(voice, "reverb_wash", x, taps=96 + 24 * col)
+            early = self._delay_fast(voice, "reverb_early", washed, 0.08 + 0.018 * col, 0.14)
+            late = self._delay_fast(voice, "reverb_late", washed, 0.46 + 0.08 * col, 0.28)
+            return (0.18 * washed + early + late) * controls["level"]
+        if role == "stereo":
+            body = self._smooth_fast(voice, "stereo_body", x, taps=10 + 3 * col)
+            drift = (0.56 + 0.30 * lfo) * body
+            width = self._delay_fast(voice, "stereo_width", body, 0.012 + 0.006 * col, 0.18)
+            return (drift + width) * (0.70 + 0.16 * controls["diffusion"])
+
+        body = self._smooth_fast(voice, "shape_body", x, taps=8 + 2 * col)
+        shaped = soft_clip(body * (1.05 + 0.16 * col), threshold=0.76)
+        tail = self._delay_fast(voice, "shape_tail", shaped, 0.18 + 0.035 * col, 0.12)
+        return (0.76 * shaped + tail) * (0.70 + 0.16 * lfo) * controls["level"]
+
+    def _smooth_fast(self, voice, key, x, taps):
+        taps = max(2, int(taps))
+        buffers = voice["delay_buffers"]
+        hist_key = f"{key}_hist"
+        history = buffers.get(hist_key)
+        if history is None or len(history) != taps - 1:
+            history = np.zeros(taps - 1, dtype=np.float64)
+        combined = np.concatenate([history, x])
+        kernel = np.ones(taps, dtype=np.float64) / float(taps)
+        y = np.convolve(combined, kernel, mode="valid")
+        buffers[hist_key] = combined[-(taps - 1) :].copy()
+        return y
+
+    def _delay_fast(self, voice, key, x, seconds, wet):
+        delay_len = max(1, int(seconds * self.samplerate))
+        buffers = voice["delay_buffers"]
+        buf = buffers.get(key)
+        if buf is None or len(buf) != delay_len:
+            buf = np.zeros(delay_len, dtype=np.float64)
+
+        combined = np.concatenate([buf, x])
+        out = combined[: len(x)].copy()
+        buffers[key] = combined[len(x) : len(x) + delay_len].copy()
+        return float(wet) * out
 
     def _one_pole(self, x, voice, coeff):
         coeff = float(clamp(coeff, 0.001, 1.0))

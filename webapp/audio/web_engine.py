@@ -27,7 +27,7 @@ REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1
 MICRO_FAMILIES = ("microloop", "granules", "glitch", "multidelay")
 SYNTH_WET_VOICE_BUDGET = 5
-SAMPLE_SYNTH_WET_VOICE_BUDGET = 2
+SAMPLE_SYNTH_WET_VOICE_BUDGET = 1
 
 
 def bpm_to_reverb_feedback(bpm):
@@ -281,6 +281,7 @@ class WebEngine:
                 bath_layers,
                 source_arrays=source_arrays,
                 source_positions=source_positions,
+                low_cpu=sample_backed,
             )
 
         n_wet = len(bath_layers)
@@ -311,8 +312,11 @@ class WebEngine:
         self.reverb.set_feedback(self._rv_feedback)
         self.reverb.set_cutoff(self._rv_cutoff)
         self.reverb.set_space(style="wash", size=rv_size, diffusion=rv_diffusion)
-        reverb_wet = self.reverb.process(smeared)
-        wet_final = self.wet_limiter.process(smeared + self.reverb_mix * reverb_wet)
+        if sample_backed:
+            wet_final = self.wet_limiter.process(smeared)
+        else:
+            reverb_wet = self.reverb.process(smeared)
+            wet_final = self.wet_limiter.process(smeared + self.reverb_mix * reverb_wet)
 
         mix = float(np.clip(self.wet_dry, 0.0, 1.0))
         dry_gain = min(1.0, 2.0 * (1.0 - mix))

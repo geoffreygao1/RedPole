@@ -90,6 +90,31 @@ def test_synth_bath_processor_uses_unison_source_reads_only():
     assert proc.debug_read_ratios == [1.0]
 
 
+def test_sample_backed_low_cpu_path_avoids_python_loop_effect_primitives():
+    proc = SynthBathProcessor(SR, seed=5)
+    source = _tone()
+    layer = _layer(1, engine="multidelay", row=3, col=4)
+
+    def fail_if_slow_delay_is_used(*args, **kwargs):
+        raise AssertionError("low CPU sample-backed path should avoid feedback delay loops")
+
+    def fail_if_slow_filter_is_used(*args, **kwargs):
+        raise AssertionError("low CPU sample-backed path should avoid one-pole loops")
+
+    proc._delay = fail_if_slow_delay_is_used
+    proc._one_pole = fail_if_slow_filter_is_used
+    out = proc.process(
+        2048,
+        [layer],
+        source_arrays={1: source},
+        source_positions={1: 0},
+        low_cpu=True,
+    )
+
+    assert float(np.sqrt(np.mean(out.astype(np.float64) ** 2))) > 0.0
+    assert proc.debug_read_ratios == [1.0]
+
+
 def test_dense_synth_bath_layers_stay_bounded():
     proc = SynthBathProcessor(SR, seed=7)
     layers = [
