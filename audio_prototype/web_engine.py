@@ -193,6 +193,21 @@ class WebEngine:
             dry += voice_blocks[layer["id"]] * gain
         dry /= max(1.0, np.sqrt(len(layers)))
 
+        micro_layers = [l for l in layers if l["engine"] in MICRO_FAMILIES]
+        source_arrays = {vid: self.synth.buffer_for(vid) for vid in voice_blocks}
+        source_positions = {vid: self.synth.read_pos(vid) for vid in voice_blocks}
+
+        wet = np.zeros(frames, dtype=np.float64)
+        if micro_layers:
+            wet += self.microcosm.process(
+                np.zeros(0, dtype=np.float32),
+                frames,
+                micro_layers,
+                source_arrays=source_arrays,
+                source_positions=source_positions,
+            )
+
         mix = float(np.clip(self.wet_dry, 0.0, 1.0))
         dry_gain = min(1.0, 2.0 * (1.0 - mix))
-        return soft_clip(dry_gain * dry).astype(np.float32)
+        wet_gain = min(1.0, 2.0 * mix)
+        return soft_clip(dry_gain * dry + wet_gain * wet).astype(np.float32)

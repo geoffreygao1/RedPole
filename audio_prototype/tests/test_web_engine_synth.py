@@ -61,3 +61,39 @@ def test_synth_voice_produces_audible_dry_tone():
     assert float(np.sqrt(np.mean(total**2))) > 0.02
     assert np.max(np.abs(total)) <= 1.0
     assert not np.any(np.isnan(total))
+
+
+def test_synth_micro_voice_adds_wet_distinct_from_dry():
+    wet_engine = WebEngine(samplerate=SR, seed=1)
+    wet_engine.set_mode("synth")
+    wet_engine.wet_dry = 1.0
+    _connect(wet_engine, engine_name="granules", row=1, col=0)
+
+    dry_engine = WebEngine(samplerate=SR, seed=1)
+    dry_engine.set_mode("synth")
+    dry_engine.wet_dry = 0.0
+    _connect(dry_engine, engine_name="granules", row=1, col=0)
+
+    wet_blocks, dry_blocks = [], []
+    for _ in range(40):
+        w = wet_engine.generate_block(1024)
+        d = dry_engine.generate_block(1024)
+        wet_blocks.append(w)
+        dry_blocks.append(d)
+        assert not np.any(np.isnan(w))
+        assert np.max(np.abs(w)) <= 1.0
+    assert float(np.sqrt(np.mean(np.concatenate(wet_blocks) ** 2))) > 0.005
+    assert any(
+        not np.allclose(w, d, atol=1e-6) for w, d in zip(wet_blocks, dry_blocks)
+    )
+
+
+def test_two_micro_voices_are_bounded():
+    engine = WebEngine(samplerate=SR, seed=1)
+    engine.set_mode("synth")
+    _connect(engine, engine_name="granules", row=1, col=0)
+    _connect(engine, engine_name="glitch", row=2, col=2)
+    for _ in range(60):
+        block = engine.generate_block(2048)
+        assert np.max(np.abs(block)) <= 1.0
+        assert not np.any(np.isnan(block))
