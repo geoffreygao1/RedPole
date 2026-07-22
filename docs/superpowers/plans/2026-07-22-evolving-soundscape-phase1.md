@@ -487,7 +487,7 @@ rtk git commit -m "feat(soundscape): add register-aware pitch allocator"
 - Consumes: numpy only.
 - Produces: `class DensityGainSmoother(base_gain=1.0, smoothing=0.05)` with `.update(active_count) -> float`, implementing spec §9.3 `voiceGain = baseGain / sqrt(activeVoiceCount)` with one-pole smoothing so gain doesn't jump between blocks.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_density.py
@@ -523,12 +523,12 @@ def test_gain_changes_smoothly_not_abruptly():
     assert g_after_jump < g_before
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_density.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_density'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_density.py
@@ -551,12 +551,12 @@ class DensityGainSmoother:
         return float(self._current)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_density.py -v`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_density.py audio_prototype/tests/test_soundscape_density.py
