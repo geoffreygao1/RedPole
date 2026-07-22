@@ -52,3 +52,40 @@ def test_additive_voice_is_dropped_on_sync():
     assert 1 in src._voices
     src.sync([])
     assert 1 not in src._voices
+
+from soundscape_sources import GRANULAR_PRESETS, GranularCloudSource
+
+
+def test_granular_has_five_presets_with_required_keys():
+    assert len(GRANULAR_PRESETS) == 5
+    for p in GRANULAR_PRESETS:
+        assert {"id", "grain_ms", "density_hz", "spread_ms"} <= set(p)
+
+
+def test_granular_cloud_is_audible_and_bounded():
+    src = GranularCloudSource(44100, seed=2)
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    blocks = [src.render(1, timbre, 90.0, 1024, GRANULAR_PRESETS[0]) for _ in range(60)]
+    total = np.concatenate(blocks)
+    assert total.dtype == np.float64
+    assert np.max(np.abs(total)) <= 1.0 + 1e-6
+    assert not np.any(np.isnan(total))
+    assert float(np.sqrt(np.mean(total ** 2))) > 0.005
+
+
+def test_granular_cloud_is_deterministic_given_seed():
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    a = GranularCloudSource(44100, seed=9)
+    b = GranularCloudSource(44100, seed=9)
+    out_a = np.concatenate([a.render(1, timbre, 90.0, 512, GRANULAR_PRESETS[1]) for _ in range(20)])
+    out_b = np.concatenate([b.render(1, timbre, 90.0, 512, GRANULAR_PRESETS[1]) for _ in range(20)])
+    np.testing.assert_array_equal(out_a, out_b)
+
+
+def test_granular_cloud_voice_dropped_on_sync():
+    src = GranularCloudSource(44100, seed=2)
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    src.render(1, timbre, 90.0, 256, GRANULAR_PRESETS[0])
+    assert 1 in src._voices
+    src.sync([])
+    assert 1 not in src._voices
