@@ -578,7 +578,7 @@ rtk git commit -m "feat(soundscape): add density-based gain smoothing"
   - `assign_voice_roles(order_ids) -> dict[id, str]` — respects spec §9.2 budgets (3-5 foreground, 5-8 midground, 4-8 background, rest dormant), where `order_ids` is a sequence of ids in priority order (oldest/most-important first).
   - `event_probability(active_count) -> float` — spec §9.5's probability-by-density table, linearly interpolated within each bucket.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_density.py
@@ -620,12 +620,12 @@ def test_event_probability_within_bucket_bounds():
     assert 0.05 <= event_probability(25) <= 0.30
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_density.py -k "assign_voice_roles or event_probability" -v`
 Expected: FAIL — `ImportError: cannot import name 'assign_voice_roles'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_density.py
@@ -679,12 +679,12 @@ def event_probability(active_count):
     return 0.05 if n > 25 else 1.0
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_density.py -v`
 Expected: PASS (7 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_density.py audio_prototype/tests/test_soundscape_density.py
