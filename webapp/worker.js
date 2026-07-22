@@ -1,9 +1,8 @@
 // Runs in a background Web Worker: loads Pyodide, fetches the shared
-// Python DSP files straight from audio_prototype/ (same files the
-// desktop app and pytest use -- no copy, no build step), and paces
-// audio generation ahead of real time, handing finished blocks directly
-// to the AudioWorklet over a MessageChannel so the main thread is never
-// on the audio path.
+// Runs in a background Web Worker: loads Pyodide, fetches the Python DSP
+// files, and paces audio generation ahead of real time. GitHub Pages serves
+// the deployable copies from webapp/audio/; local repo-root dev can fall back
+// to ../audio_prototype/.
 
 const PYODIDE_VERSION = "v0.26.4";
 const PYTHON_FILES = [
@@ -31,17 +30,17 @@ let paused = true;
 let bufferedAheadFrames = 0;
 
 async function fetchPythonSource(name) {
-  // ../audio_prototype/<name>.py resolves correctly both in local dev
-  // (serving the whole repo root) and once deployed (Task 6 publishes
-  // audio_prototype/ as a sibling of webapp/, matching this relative path).
-  const response = await fetch(
+  const urls = [
+    `audio/${name}?v=${PYTHON_SOURCE_VERSION}`,
     `../audio_prototype/${name}?v=${PYTHON_SOURCE_VERSION}`,
-    { cache: "no-store" }
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${name}: ${response.status}`);
+  ];
+  let lastStatus = "not requested";
+  for (const url of urls) {
+    const response = await fetch(url, { cache: "no-store" });
+    lastStatus = `${response.status} from ${url}`;
+    if (response.ok) return response.text();
   }
-  return response.text();
+  throw new Error(`Failed to fetch ${name}: ${lastStatus}`);
 }
 
 async function initPyodide() {

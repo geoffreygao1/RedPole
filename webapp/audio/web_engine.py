@@ -1,0 +1,338 @@
+"""Browser-oriented audio orchestrator.
+
+Unlike audio_engine.AudioEngine (which owns a sounddevice output stream
+and decodes files via soundfile), WebEngine has no device or file I/O of
+its own -- a JS Worker drives it by calling generate_block(frames)
+repeatedly and hands it already-decoded samples via load_loop(). It
+reuses the exact same effect classes as the desktop engine.
+"""
+
+import numpy as np
+
+from crowd import CrowdState, EntryGestureTracker
+from layers import LayerRegistry
+from modulation import RmsLimiter, combine_layers, sat_to_unit, soft_clip, val_to_unit
+from microcosm_processor import MicrocosmProcessor
+from reverb import SchroederReverb
+from spectral_stretch import SpectralSmear
+from synth_bath_processor import SynthBathProcessor
+from synth_source import SynthVoiceBank
+from tape_modulator import TapeModulator, tape_column_controls
+from wet_bus import WetBusManager
+
+DEFAULT_SAMPLE_RATE = 44100
+MAX_LOOP_SECONDS = 600.0
+REVERB_DEFAULT_FEEDBACK = 0.84
+REVERB_DEFAULT_CUTOFF = 7800.0
+REVERB_SMOOTHING = 0.1
+MICRO_FAMILIES = ("microloop", "granules", "glitch", "multidelay")
+SYNTH_WET_VOICE_BUDGET = 5
+SAMPLE_SYNTH_WET_VOICE_BUDGET = 2
+
+
+def bpm_to_reverb_feedback(bpm):
+    """Slow, calm pulses open a long wash; fast pulses tighten the room."""
+    return min(0.985, max(0.82, 0.99 - 0.00025 * bpm))
+
+
+def val_to_reverb_cutoff(val):
+    """Dark crimsons give a muffled tail; bright pinks keep it airy."""
+    return 800.0 + 7000.0 * val_to_unit(val)
+
+
+class WebEngine:
+    """Browser-oriented orchestrator: no device I/O, no file decoding --
+    just generate_block(frames) and load_loop(samples), driven by a JS
+    Worker. Reuses the exact same effect classes as the desktop engine.
+
+    The base signal always routes through TapeModulator.process(), even
+    with zero tape layers -- combine_layers([]) gives zero warble/bloom
+    depth, which TapeModulator already treats as an exact, continuous
+    passthrough. This keeps self.modulator._read_pos as the single
+    position tracker at all times, so tape layers coming and going never
+    causes a read-position jump.
+    """
+
+    def __init__(self, samplerate=DEFAULT_SAMPLE_RATE, seed=None):
+        self.samplerate = samplerate
+        self._seed = seed
+        self.mode = "loop"
+        self.registry = LayerRegistry()
+        self.modulator = TapeModulator(samplerate=samplerate, seed=seed)
+        self.microcosm = MicrocosmProcessor(samplerate, seed=seed)
+        self.reverb = SchroederReverb(samplerate)
+        self.wet_bus = WetBusManager(samplerate)
+        self.entry_gestures = EntryGestureTracker(samplerate)
+        self.wet_limiter = RmsLimiter(target_rms=0.35)
+        self.synth_output_limiter = RmsLimiter(target_rms=0.28, attack=0.72, release=0.01)
+        self.reverb_mix = 0.975
+        self.wet_dry = 0.5
+        self._rv_feedback = REVERB_DEFAULT_FEEDBACK
+        self._rv_cutoff = REVERB_DEFAULT_CUTOFF
+        self.loop_array = None
+        self.tone_mode = "scan"
+        self.harmony_mode = "open"
+        self.synth_wet_voice_budget = SYNTH_WET_VOICE_BUDGET
+        self._synth_wet_budget_cursor = 0
+        self.synth = SynthVoiceBank(samplerate, seed=seed)
+        self.synth_bath = SynthBathProcessor(samplerate, seed=seed)
+        self.spectral_smear = SpectralSmear(samplerate, seed=seed)
+        self.synth_tape = {}
+
+    def set_mode(self, mode):
+        """Switch modes and reset per-session patch/DSP state."""
+        if mode not in ("loop", "synth"):
+            raise ValueError(f"Unknown mode {mode!r}; expected 'loop' or 'synth'")
+        self.mode = mode
+        self.registry = LayerRegistry()
+        self.microcosm = MicrocosmProcessor(self.samplerate, seed=self._seed)
+        self.entry_gestures = EntryGestureTracker(self.samplerate)
+        self.spectral_smear = SpectralSmear(self.samplerate, seed=self._seed)
+        self.synth.reset()
+        self.synth_bath = SynthBathProcessor(self.samplerate, seed=self._seed)
+        self.synth_tape = {}
+        self.synth_output_limiter = RmsLimiter(target_rms=0.28, attack=0.72, release=0.01)
+        self._synth_wet_budget_cursor = 0
+
+    def ensure_mode(self, mode):
+        """Switch mode without clearing already-sent source/patch state."""
+        if mode not in ("loop", "synth"):
+            raise ValueError(f"Unknown mode {mode!r}; expected 'loop' or 'synth'")
+        self.mode = mode
+
+    def set_synth_options(self, tone_mode=None, harmony_mode=None):
+        """Change synth audition options without clearing patch/source state."""
+        if tone_mode is not None:
+            self.tone_mode = tone_mode
+        if harmony_mode is not None:
+            self.harmony_mode = harmony_mode
+        self.synth.set_options(
+            tone_mode=self.tone_mode, harmony_mode=self.harmony_mode
+        )
+        self.synth_tape = {}
+        self.microcosm = MicrocosmProcessor(self.samplerate, seed=self._seed)
+        self.synth_bath = SynthBathProcessor(self.samplerate, seed=self._seed)
+        self.spectral_smear = SpectralSmear(self.samplerate, seed=self._seed)
+
+    def load_loop(self, samples):
+        array = np.asarray(samples, dtype=np.float32)
+        max_len = int(MAX_LOOP_SECONDS * self.samplerate)
+        if len(array) > max_len:
+            array = array[:max_len]
+        self.loop_array = array
+
+    def load_synth_sample(self, name, samples):
+        self.synth.load_sample(name, samples)
+
+    def generate_block(self, frames):
+        if self.mode == "synth":
+            return self._generate_synth_block(frames)
+        if self.loop_array is None:
+            raise RuntimeError("No loop loaded; call load_loop() first")
+
+        layers = self.registry.snapshot()
+        tape_layers = [l for l in layers if l["engine"] == "tape"]
+        micro_layers = [l for l in layers if l["engine"] in MICRO_FAMILIES]
+        reverb_layers = [l for l in layers if l["engine"] == "reverb"]
+        zeros = np.zeros(frames, dtype=np.float32)
+
+        combined = combine_layers(tape_layers)
+        tape_controls = tape_column_controls(tape_layers)
+        avg_hue = sum(l["hue"] for l in tape_layers) / len(tape_layers) if tape_layers else 0.0
+        avg_sat = sum(l["sat"] for l in tape_layers) / len(tape_layers) if tape_layers else 0.5
+        avg_val = sum(l["val"] for l in tape_layers) / len(tape_layers) if tape_layers else 1.0
+
+        crowd = CrowdState.from_layers(layers)
+        entry = self.entry_gestures.process(layers, frames, crowd.density)
+
+        source_pos = self.modulator._read_pos
+        base = self.modulator.process(
+            self.loop_array,
+            frames,
+            combined["warble_depth"],
+            combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
+            combined["rate_hz"],
+            hue=avg_hue,
+            sat=avg_sat,
+            val=avg_val,
+            tape_controls=tape_controls,
+        )
+
+        if not layers:
+            return base.astype(np.float32)
+
+        wet_raw = self.microcosm.process(
+            self.loop_array, frames, micro_layers, source_pos=source_pos
+        )
+        n_wet = len(micro_layers)
+        n_rv = len(reverb_layers)
+
+        if reverb_layers:
+            weights = np.array(
+                [0.2 + l["sat"] + l["val"] for l in reverb_layers], dtype=np.float64
+            )
+            sats = np.array([l["sat"] for l in reverb_layers], dtype=np.float64)
+            vals = np.array([l["val"] for l in reverb_layers], dtype=np.float64)
+            bpms = np.array([l["bpm"] for l in reverb_layers], dtype=np.float64)
+            rv_val = float(np.average(vals, weights=weights))
+            rv_bpm = float(np.average(bpms, weights=weights))
+            rv_sat_unit = float(np.average([sat_to_unit(s) for s in sats], weights=weights))
+            target_fb = bpm_to_reverb_feedback(rv_bpm)
+            target_cut = val_to_reverb_cutoff(rv_val)
+            rv_density = min(1.0, np.sqrt(len(reverb_layers) / 6.0))
+            rv_size = min(1.0, 0.48 + 0.38 * rv_sat_unit + 0.30 * rv_density)
+            rv_diffusion = min(1.0, 0.55 + 0.30 * rv_sat_unit + 0.25 * rv_density)
+        else:
+            target_fb = REVERB_DEFAULT_FEEDBACK
+            target_cut = REVERB_DEFAULT_CUTOFF
+            rv_size = 0.35
+            rv_diffusion = 0.45
+
+        controls = self.wet_bus.controls(wet_voice_count=n_wet, reverb_layer_count=n_rv)
+        target_fb = max(0.62, target_fb - controls["feedback_trim"])
+        target_cut = max(700.0, target_cut * controls["cutoff_scale"])
+        self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
+        self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
+        self.reverb.set_feedback(self._rv_feedback)
+        self.reverb.set_cutoff(self._rv_cutoff)
+        self.reverb.set_space(style="wash", size=rv_size, diffusion=rv_diffusion)
+
+        managed_wet_raw = self.wet_bus.process(
+            wet_raw, wet_voice_count=n_wet, reverb_layer_count=n_rv
+        )
+        # Reverb-only layers add no signal of their own -- they only shape
+        # the room -- matching the desktop app's semantics.
+        reverb_input = managed_wet_raw if reverb_layers else zeros
+        reverb_wet = self.reverb.process(reverb_input) if reverb_layers else zeros
+        wet = self.wet_limiter.process(managed_wet_raw + self.reverb_mix * reverb_wet)
+
+        mix = float(np.clip(self.wet_dry, 0.0, 1.0))
+        dry_gain = min(1.0, 2.0 * (1.0 - mix))
+        wet_gain = min(1.0, 2.0 * mix)
+        return soft_clip(dry_gain * base + wet_gain * wet).astype(np.float32)
+
+    def _synth_tape_block(self, tape_layers, frames, entry):
+        if not tape_layers:
+            self.synth_tape = {}
+            return np.zeros(frames, dtype=np.float64)
+        active = set()
+        out = np.zeros(frames, dtype=np.float64)
+        for layer in tape_layers:
+            vid = layer["id"]
+            active.add(vid)
+            mod = self.synth_tape.get(vid)
+            if mod is None:
+                seed = None if self._seed is None else self._seed + vid * 53
+                mod = TapeModulator(samplerate=self.samplerate, seed=seed)
+                self.synth_tape[vid] = mod
+            buf = self.synth.buffer_for(vid)
+            if buf is None or len(buf) == 0:
+                continue
+            combined = combine_layers([layer])
+            controls = tape_column_controls([layer])
+            block = mod.process(
+                buf,
+                frames,
+                combined["warble_depth"],
+                combined["bloom_depth"] * (1.0 + entry.engine_gain("tape")),
+                combined["rate_hz"],
+                hue=layer["hue"],
+                sat=layer["sat"],
+                val=layer["val"],
+                tape_controls=controls,
+            )
+            out += np.asarray(block, dtype=np.float64)
+        self.synth_tape = {k: v for k, v in self.synth_tape.items() if k in active}
+        return out
+
+    def _generate_synth_block(self, frames):
+        layers = self.registry.snapshot()
+        if not layers:
+            self.spectral_smear.process(np.zeros(frames, dtype=np.float32))
+            return np.zeros(frames, dtype=np.float32)
+
+        crowd = CrowdState.from_layers(layers)
+        entry = self.entry_gestures.process(layers, frames, crowd.density)
+        voice_blocks = self.synth.block(layers, frames)
+
+        dry = np.zeros(frames, dtype=np.float64)
+        for layer in layers:
+            gain = 0.18 + 0.38 * val_to_unit(layer["val"])
+            gain *= 1.0 + entry.engine_gain(layer["engine"])
+            dry += voice_blocks[layer["id"]] * gain
+        dry /= max(1.0, np.sqrt(len(layers)))
+        dry *= 1.0 / (1.0 + 0.18 * max(0, len(layers) - 1))
+
+        sample_backed = self.synth.sample_count() > 0
+        budgeted_layers = self._budget_synth_wet_layers(layers)
+        bath_layers = [
+            l
+            for l in budgeted_layers
+            if l["engine"] in MICRO_FAMILIES or l["engine"] == "tape"
+        ]
+        reverb_layers = [l for l in layers if l["engine"] == "reverb"]
+        source_arrays = {vid: self.synth.buffer_for(vid) for vid in voice_blocks}
+        source_positions = {vid: self.synth.read_pos(vid) for vid in voice_blocks}
+
+        wet = np.zeros(frames, dtype=np.float64)
+        if bath_layers:
+            wet += self.synth_bath.process(
+                frames,
+                bath_layers,
+                source_arrays=source_arrays,
+                source_positions=source_positions,
+            )
+
+        n_wet = len(bath_layers)
+        n_rv = len(reverb_layers)
+        managed_wet = np.asarray(
+            self.wet_bus.process(wet, wet_voice_count=n_wet, reverb_layer_count=n_rv),
+            dtype=np.float32,
+        )
+
+        if sample_backed:
+            smeared = np.asarray(managed_wet, dtype=np.float64)
+        else:
+            suspension = min(1.0, 0.25 + 0.7 * crowd.density)
+            smear = min(1.0, 0.35 + 0.5 * crowd.density)
+            smeared = np.asarray(
+                self.spectral_smear.process(
+                    managed_wet, suspension=suspension, smear=smear
+                ),
+                dtype=np.float64,
+            )
+
+        target_fb = min(0.985, 0.9 + 0.06 * crowd.density)
+        target_cut = 3000.0 + 4000.0 * (1.0 - crowd.density)
+        rv_size = min(1.0, 0.5 + 0.45 * crowd.density)
+        rv_diffusion = min(1.0, 0.6 + 0.35 * crowd.density)
+        self._rv_feedback += REVERB_SMOOTHING * (target_fb - self._rv_feedback)
+        self._rv_cutoff += REVERB_SMOOTHING * (target_cut - self._rv_cutoff)
+        self.reverb.set_feedback(self._rv_feedback)
+        self.reverb.set_cutoff(self._rv_cutoff)
+        self.reverb.set_space(style="wash", size=rv_size, diffusion=rv_diffusion)
+        reverb_wet = self.reverb.process(smeared)
+        wet_final = self.wet_limiter.process(smeared + self.reverb_mix * reverb_wet)
+
+        mix = float(np.clip(self.wet_dry, 0.0, 1.0))
+        dry_gain = min(1.0, 2.0 * (1.0 - mix))
+        wet_gain = min(1.0, 2.0 * mix)
+        mixed = self.synth_output_limiter.process(dry_gain * dry + wet_gain * wet_final)
+        return (0.88 * soft_clip(0.86 * mixed, threshold=0.78)).astype(np.float32)
+
+    def _budget_synth_wet_layers(self, layers):
+        wet_layers = [
+            layer
+            for layer in layers
+            if layer["engine"] in MICRO_FAMILIES or layer["engine"] == "tape"
+        ]
+        if self.synth.sample_count() > 0:
+            budget = SAMPLE_SYNTH_WET_VOICE_BUDGET
+        else:
+            budget = self.synth_wet_voice_budget
+        budget = max(1, int(budget))
+        if len(wet_layers) <= budget:
+            return wet_layers
+        start = self._synth_wet_budget_cursor % len(wet_layers)
+        self._synth_wet_budget_cursor += budget
+        return [wet_layers[(start + i) % len(wet_layers)] for i in range(budget)]

@@ -58,6 +58,31 @@ def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     assert worker_js.index('"synth_bath_processor.py"') < worker_js.index('"web_engine.py"')
 
 
+def test_deployed_worker_uses_webapp_audio_dependency_copies():
+    worker_js = (ROOT / "webapp" / "worker.js").read_text()
+    names = [
+        "modulation.py",
+        "layers.py",
+        "tape_modulator.py",
+        "microcosm_processor.py",
+        "reverb.py",
+        "wet_bus.py",
+        "crowd.py",
+        "spectral_stretch.py",
+        "synth_source.py",
+        "synth_bath_processor.py",
+        "web_engine.py",
+    ]
+
+    assert "`audio/${name}?v=${PYTHON_SOURCE_VERSION}`" in worker_js
+    assert "`../audio_prototype/${name}?v=${PYTHON_SOURCE_VERSION}`" in worker_js
+    for name in names:
+        deployed_copy = ROOT / "webapp" / "audio" / name
+        source = ROOT / "audio_prototype" / name
+        assert deployed_copy.exists(), name
+        assert deployed_copy.read_text() == source.read_text()
+
+
 def test_pyodide_worker_cache_busts_python_sources():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 
