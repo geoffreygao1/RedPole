@@ -141,6 +141,7 @@ class App {
     this.dragSourceId = null;
     this.dragPos = null;
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
+    this.mode = "loop";
 
     this.statusEl = document.getElementById("status");
     this.appEl = document.getElementById("app");
@@ -152,6 +153,9 @@ class App {
     this.underrunReadout = document.getElementById("underrun-readout");
     this.playPauseButton = document.getElementById("play-pause-button");
     this.sourceListEl = document.getElementById("source-list");
+    this.modeLoopButton = document.getElementById("mode-loop");
+    this.modeSynthButton = document.getElementById("mode-synth");
+    this.loadLoopButton = document.getElementById("load-loop-button");
 
     this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
     this.setupAudio();
@@ -268,6 +272,8 @@ class App {
     document.getElementById("send-button").addEventListener("click", () => this.onSend());
     document.getElementById("random-button").addEventListener("click", () => this.onRandom());
     document.getElementById("play-pause-button").addEventListener("click", () => this.onTogglePlay());
+    this.modeLoopButton.addEventListener("click", () => this.setMode("loop"));
+    this.modeSynthButton.addEventListener("click", () => this.setMode("synth"));
     document.getElementById("wet-dry-slider").addEventListener("input", (e) => {
       this.worker.postMessage({ type: "set_wet_dry", value: parseFloat(e.target.value) });
     });
@@ -279,6 +285,26 @@ class App {
     this.patchCanvas.addEventListener("mousedown", (e) => this.onPatchPress(e));
     this.patchCanvas.addEventListener("mousemove", (e) => this.onPatchDrag(e));
     this.patchCanvas.addEventListener("mouseup", (e) => this.onPatchRelease(e));
+  }
+
+  setMode(mode) {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.worker.postMessage({ type: "set_mode", mode });
+
+    // Mirror the engine's server-side reset: clear all client patch state.
+    this.sources.clear();
+    this._pendingSources = [];
+    this.dragSourceId = null;
+    this.dragPos = null;
+
+    // Load Loop is meaningless in synth mode (voices are generated).
+    this.loadLoopButton.classList.toggle("hidden", mode === "synth");
+    this.modeLoopButton.classList.toggle("mode-active", mode === "loop");
+    this.modeSynthButton.classList.toggle("mode-active", mode === "synth");
+
+    this.drawPatchBay();
+    this.renderSourceList();
   }
 
   onTogglePlay() {
