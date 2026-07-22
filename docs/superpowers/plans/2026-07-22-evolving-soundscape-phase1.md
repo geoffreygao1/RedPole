@@ -2334,7 +2334,7 @@ rtk git commit -m "feat(soundscape): add SoundscapeEngine orchestration"
   - `build_patches(engine, count, rng, bpm_min=55.0, bpm_max=130.0)` — connects `count` simulated patches with hue/sat/val drawn from the real finger-scan gamut, cycling through the 25 source and 25 transform presets.
   - `main()` — CLI entry point (`--duration`, `--patches`, `--seed`) that builds patches and plays live via `sounddevice.OutputStream`. This is spec §13 Phase 1's "simulate color and BPM values... support at least eight simultaneous patches" — the deliverable you actually listen to.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_prototype.py
@@ -2373,12 +2373,12 @@ def test_build_patches_uses_gamut_bounds():
         assert mod.FINGER_VAL_MIN <= patch.val <= mod.FINGER_VAL_MAX
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_prototype.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_prototype'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_prototype.py
@@ -2450,12 +2450,12 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_prototype.py -v`
 Expected: PASS (3 tests). (This does not open an audio device — `sounddevice.OutputStream` is only constructed inside `main()`, which the tests don't call.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_prototype.py audio_prototype/tests/test_soundscape_prototype.py
