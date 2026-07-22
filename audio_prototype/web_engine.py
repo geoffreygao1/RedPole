@@ -14,6 +14,8 @@ from layers import LayerRegistry
 from modulation import RmsLimiter, combine_layers, sat_to_unit, soft_clip, val_to_unit
 from microcosm_processor import MicrocosmProcessor
 from reverb import SchroederReverb
+from spectral_stretch import SpectralSmear
+from synth_source import SynthVoiceBank
 from tape_modulator import TapeModulator, tape_column_controls
 from wet_bus import WetBusManager
 
@@ -50,6 +52,8 @@ class WebEngine:
 
     def __init__(self, samplerate=DEFAULT_SAMPLE_RATE, seed=None):
         self.samplerate = samplerate
+        self._seed = seed
+        self.mode = "loop"
         self.registry = LayerRegistry()
         self.modulator = TapeModulator(samplerate=samplerate, seed=seed)
         self.microcosm = MicrocosmProcessor(samplerate, seed=seed)
@@ -62,6 +66,21 @@ class WebEngine:
         self._rv_feedback = REVERB_DEFAULT_FEEDBACK
         self._rv_cutoff = REVERB_DEFAULT_CUTOFF
         self.loop_array = None
+        self.synth = SynthVoiceBank(samplerate, seed=seed)
+        self.spectral_smear = SpectralSmear(samplerate, seed=seed)
+        self.synth_tape = {}
+
+    def set_mode(self, mode):
+        """Switch modes and reset per-session patch/DSP state."""
+        if mode not in ("loop", "synth"):
+            raise ValueError(f"Unknown mode {mode!r}; expected 'loop' or 'synth'")
+        self.mode = mode
+        self.registry = LayerRegistry()
+        self.microcosm = MicrocosmProcessor(self.samplerate, seed=self._seed)
+        self.entry_gestures = EntryGestureTracker(self.samplerate)
+        self.spectral_smear = SpectralSmear(self.samplerate, seed=self._seed)
+        self.synth.reset()
+        self.synth_tape = {}
 
     def load_loop(self, samples):
         array = np.asarray(samples, dtype=np.float32)
