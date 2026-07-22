@@ -1138,7 +1138,7 @@ rtk git commit -m "feat(soundscape): add resonant pulse source engine"
   - `NOISE_PRESETS: list[dict]` — 5 presets, each `{"id", "tilt", "gain"}`.
   - `class FilteredNoiseSource(samplerate, seed=None)` with `.render(vid, timbre, frames, preset) -> np.ndarray` and `.sync(active_ids)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_sources.py
@@ -1181,12 +1181,12 @@ def test_noise_voice_dropped_on_sync():
     assert 1 not in src._voices
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -k noise -v`
 Expected: FAIL — `ImportError: cannot import name 'FilteredNoiseSource'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_sources.py
@@ -1236,12 +1236,12 @@ class FilteredNoiseSource:
         sync_voices(self._voices, active_ids)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -v`
 Expected: PASS (16 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_sources.py audio_prototype/tests/test_soundscape_sources.py

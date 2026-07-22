@@ -126,3 +126,41 @@ def test_resonant_pulse_voice_dropped_on_sync():
     assert 1 in src._voices
     src.sync([])
     assert 1 not in src._voices
+
+from soundscape_sources import NOISE_PRESETS, FilteredNoiseSource
+
+
+def _hf_ratio(x):
+    mag = np.abs(np.fft.rfft(x))
+    return float(np.sum(mag[len(mag) // 2:]) / (np.sum(mag) + 1e-12))
+
+
+def test_noise_has_five_presets_with_required_keys():
+    assert len(NOISE_PRESETS) == 5
+    for p in NOISE_PRESETS:
+        assert {"id", "tilt", "gain"} <= set(p)
+
+
+def test_dark_preset_is_less_bright_than_bright_preset():
+    src = FilteredNoiseSource(44100, seed=4)
+    timbre = calibrate_color(0.0, 0.68, 0.94)
+    dark = np.concatenate([src.render(1, timbre, 2048, {"id": "d", "tilt": -0.8, "gain": 1.0}) for _ in range(10)])
+    bright = np.concatenate([src.render(2, timbre, 2048, {"id": "b", "tilt": 0.8, "gain": 1.0}) for _ in range(10)])
+    assert _hf_ratio(bright) > _hf_ratio(dark)
+
+
+def test_noise_output_is_bounded_and_nan_free():
+    src = FilteredNoiseSource(44100, seed=4)
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    total = np.concatenate([src.render(1, timbre, 1024, NOISE_PRESETS[i % 5]) for i in range(40)])
+    assert not np.any(np.isnan(total))
+    assert np.max(np.abs(total)) <= 1.0 + 1e-6
+
+
+def test_noise_voice_dropped_on_sync():
+    src = FilteredNoiseSource(44100, seed=4)
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    src.render(1, timbre, 256, NOISE_PRESETS[0])
+    assert 1 in src._voices
+    src.sync([])
+    assert 1 not in src._voices

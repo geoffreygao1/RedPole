@@ -54,6 +54,50 @@ class AdditiveDroneSource:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+NOISE_PRESETS = [
+    {"id": "noise_1", "tilt": -0.6, "gain": 0.35},   # breath / air texture, darker
+    {"id": "noise_2", "tilt": 0.1, "gain": 0.4},      # water-like filtered noise
+    {"id": "noise_3", "tilt": 0.4, "gain": 0.3},      # wind model
+    {"id": "noise_4", "tilt": -0.3, "gain": 0.2},     # distant room tone
+    {"id": "noise_5", "tilt": 0.0, "gain": 0.3},      # broadband noise, flat tilt
+]
+
+
+class FilteredNoiseSource:
+    """Warmth-shaped filtered noise (spec 7 row 5, 5.2). tilt<0 mixes toward
+    a one-pole-lowpassed signal (darker); tilt>0 toward the highpassed
+    complement (brighter). A slow sine 'breathing' envelope avoids static
+    full-volume sustain (spec 9.6)."""
+
+    def __init__(self, samplerate, seed=None):
+        self.samplerate = samplerate
+        self._voices = {}
+        self._rng_seed = seed
+
+    def render(self, vid, timbre, frames, preset):
+        voice = self._voices.get(vid)
+        if voice is None:
+            rng_seed = None if self._rng_seed is None else self._rng_seed + int(vid) * 149
+            voice = {"rng": np.random.default_rng(rng_seed), "lp_state": 0.0}
+            self._voices[vid] = voice
+        rng = voice["rng"]
+        noise = rng.uniform(-1.0, 1.0, size=frames)
+        tilt = float(np.clip(preset["tilt"] + 0.4 * (timbre["warmth"] - 0.5), -1.0, 1.0))
+        coeff = float(np.clip(0.9 - 0.4 * abs(tilt), 0.3, 0.98))
+        lowpassed = np.empty(frames, dtype=np.float64)
+        state = voice["lp_state"]
+        for i in range(frames):
+            state = coeff * state + (1.0 - coeff) * noise[i]
+            lowpassed[i] = state
+        voice["lp_state"] = state
+        shaped = lowpassed if tilt <= 0 else (noise - lowpassed)
+        t = np.arange(frames, dtype=np.float64) / self.samplerate
+        breathing = 0.6 + 0.4 * np.sin(2.0 * np.pi * 0.05 * t + vid)
+        return shaped * preset["gain"] * breathing
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
 RESONANT_PRESETS = [
     {"id": "resonant_1", "interval_semitones": (0,), "decay": 0.9975, "excite_gain": 0.6},
     {"id": "resonant_2", "interval_semitones": (0, 7), "decay": 0.997, "excite_gain": 0.55},
