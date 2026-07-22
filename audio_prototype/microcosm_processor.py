@@ -124,12 +124,24 @@ class MicrocosmProcessor:
         self._seed = seed
         self._voices = {}
 
-    def process(self, loop_array, frames, layers, source_pos=0):
-        if not layers or len(loop_array) == 0:
+    def process(
+        self,
+        loop_array,
+        frames,
+        layers,
+        source_pos=0,
+        source_arrays=None,
+        source_positions=None,
+    ):
+        if not layers:
             self._voices = {}
             return np.zeros(frames, dtype=np.float32)
 
         loop = np.asarray(loop_array)
+        if len(loop) == 0 and not source_arrays:
+            self._voices = {}
+            return np.zeros(frames, dtype=np.float32)
+
         out = np.zeros(frames, dtype=np.float64)
         active = set()
         density_probability = min(1.0, EVENT_DENSITY_TARGET / max(1, len(layers)))
@@ -171,6 +183,14 @@ class MicrocosmProcessor:
                 voice["controls"] = microcosm_controls(layer)
                 voice["controls_key"] = controls_key
             controls = voice["controls"]
+
+            if source_arrays is not None and source_arrays.get(vid) is not None:
+                layer_loop = np.asarray(source_arrays[vid])
+                layer_source_pos = int((source_positions or {}).get(vid, source_pos))
+            else:
+                layer_loop = loop
+                layer_source_pos = source_pos
+
             t = voice["until_event"]
             while t < frames:
                 if (
@@ -179,10 +199,10 @@ class MicrocosmProcessor:
                 ):
                     self._emit_event(
                         voice,
-                        loop,
+                        layer_loop,
                         family,
                         t,
-                        int(source_pos + t),
+                        int(layer_source_pos + t),
                         controls,
                     )
                     events_this_block += 1

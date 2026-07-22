@@ -384,3 +384,48 @@ def test_small_blocks_use_stricter_event_burst_cap():
     proc.process(_tone(220.0), 256, layers, source_pos=0)
 
     assert proc.events == 1
+
+
+def test_per_voice_source_arrays_are_used_when_provided():
+    # Two voices with DISTINCT source buffers must produce distinct output,
+    # proving each read its own buffer (not the shared loop_array).
+    frames = 1024
+    a = _tone(220.0, seconds=2.0)
+    b = _tone(660.0, seconds=2.0)
+    layers = [_layer(1, engine="granules"), _layer(2, engine="granules")]
+
+    proc = MicrocosmProcessor(SR, seed=1)
+    per_voice = np.concatenate(
+        [
+            proc.process(
+                np.zeros(0),
+                frames,
+                layers,
+                source_arrays={1: a, 2: b},
+                source_positions={1: n * frames, 2: n * frames},
+            )
+            for n in range(60)
+        ]
+    )
+    assert float(np.sqrt(np.mean(per_voice**2))) > 0.005
+    assert not np.any(np.isnan(per_voice))
+
+
+def test_omitting_source_arrays_matches_legacy_shared_loop():
+    frames = 1024
+    loop = _tone(220.0, seconds=2.0) + 0.25 * _tone(440.0, seconds=2.0)
+    layers = [_layer(1, engine="granules")]
+
+    legacy = MicrocosmProcessor(SR, seed=7)
+    updated = MicrocosmProcessor(SR, seed=7)
+    for n in range(40):
+        out_legacy = legacy.process(loop, frames, layers, source_pos=n * frames)
+        out_updated = updated.process(
+            loop,
+            frames,
+            layers,
+            source_pos=n * frames,
+            source_arrays=None,
+            source_positions=None,
+        )
+        np.testing.assert_array_equal(out_legacy, out_updated)
