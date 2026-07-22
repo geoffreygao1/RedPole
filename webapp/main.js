@@ -142,6 +142,7 @@ class App {
     this.dragPos = null;
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
     this.mode = "loop";
+    this.loopLoaded = false;
 
     this.statusEl = document.getElementById("status");
     this.appEl = document.getElementById("app");
@@ -308,6 +309,11 @@ class App {
   }
 
   onTogglePlay() {
+    if (this.mode === "loop" && !this.loopLoaded) {
+      this.statusEl.textContent = "Load a loop or switch to Synth before playing.";
+      this.statusEl.classList.remove("hidden");
+      return;
+    }
     if (this.audioContext.state === "suspended") {
       this.audioContext.resume();
       this.worker.postMessage({ type: "play" });
@@ -335,6 +341,8 @@ class App {
       for (let ch = 0; ch < channels.length; ch++) sum += channels[ch][i];
       mono[i] = sum / channels.length;
     }
+    this.loopLoaded = true;
+    this.statusEl.classList.add("hidden");
     this.worker.postMessage({ type: "load_loop", samples: mono }, [mono.buffer]);
   }
 
