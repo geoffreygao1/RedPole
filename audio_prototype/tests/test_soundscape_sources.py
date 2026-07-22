@@ -164,3 +164,56 @@ def test_noise_voice_dropped_on_sync():
     assert 1 in src._voices
     src.sync([])
     assert 1 not in src._voices
+
+from soundscape_sources import TEXTURE_PRESETS, SampleTextureSource
+
+
+def test_texture_has_five_presets_with_required_keys():
+    assert len(TEXTURE_PRESETS) == 5
+    for p in TEXTURE_PRESETS:
+        assert {"id", "window_ms", "drift_ms", "freeze"} <= set(p)
+
+
+def test_texture_is_audible_bounded_and_nan_free_with_placeholder():
+    src = SampleTextureSource(44100, seed=6)
+    total = np.concatenate([src.render(1, 1024, TEXTURE_PRESETS[0]) for _ in range(60)])
+    assert not np.any(np.isnan(total))
+    assert np.max(np.abs(total)) <= 1.0 + 1e-6
+    assert float(np.sqrt(np.mean(total ** 2))) > 0.005
+
+
+def test_freeze_preset_barely_moves_the_read_window():
+    src = SampleTextureSource(44100, seed=6)
+    freeze_preset = dict(TEXTURE_PRESETS[0], freeze=True)
+    src.render(1, 1024, freeze_preset)
+    pos_before = src._voices[1]["pos"]
+    for _ in range(20):
+        src.render(1, 1024, freeze_preset)
+    assert src._voices[1]["pos"] == pos_before
+
+
+def test_non_freeze_preset_advances_the_read_window():
+    src = SampleTextureSource(44100, seed=6)
+    preset = next(p for p in TEXTURE_PRESETS if not p["freeze"])
+    src.render(1, 1024, preset)
+    pos_before = src._voices[1]["pos"]
+    for _ in range(20):
+        src.render(1, 1024, preset)
+    assert src._voices[1]["pos"] != pos_before
+
+
+def test_load_sample_changes_the_output():
+    src_a = SampleTextureSource(44100, seed=6)
+    src_b = SampleTextureSource(44100, seed=6)
+    src_b.load_sample(np.sin(2 * np.pi * 440 * np.arange(44100 * 3) / 44100))
+    out_a = np.concatenate([src_a.render(1, 1024, TEXTURE_PRESETS[0]) for _ in range(20)])
+    out_b = np.concatenate([src_b.render(1, 1024, TEXTURE_PRESETS[0]) for _ in range(20)])
+    assert not np.allclose(out_a, out_b)
+
+
+def test_texture_voice_dropped_on_sync():
+    src = SampleTextureSource(44100, seed=6)
+    src.render(1, 256, TEXTURE_PRESETS[0])
+    assert 1 in src._voices
+    src.sync([])
+    assert 1 not in src._voices

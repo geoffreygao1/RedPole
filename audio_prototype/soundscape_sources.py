@@ -54,6 +54,73 @@ class AdditiveDroneSource:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+TEXTURE_PRESETS = [
+    {"id": "texture_1", "window_ms": 400, "drift_ms": 200, "freeze": False},
+    {"id": "texture_2", "window_ms": 250, "drift_ms": 600, "freeze": False},
+    {"id": "texture_3", "window_ms": 180, "drift_ms": 50, "freeze": True},
+    {"id": "texture_4", "window_ms": 300, "drift_ms": 300, "freeze": False, "reverse": True},
+    {"id": "texture_5", "window_ms": 500, "drift_ms": 900, "freeze": False},
+]
+
+
+class SampleTextureSource:
+    """Windowed playback of a loaded (or generated placeholder) sample,
+    spec 7 row 3 / 16.3.2 'granular memory' / 20 Scene E. The read window
+    drifts slowly through the buffer; 'freeze' presets stop it, 'reverse'
+    plays the window backwards."""
+
+    def __init__(self, samplerate, seed=None):
+        self.samplerate = samplerate
+        self._rng = np.random.default_rng(seed)
+        self._buffer = self._default_texture()
+        self._voices = {}
+
+    def _default_texture(self, seconds=6.0):
+        n = int(seconds * self.samplerate)
+        noise = self._rng.uniform(-1.0, 1.0, size=n)
+        state = 0.0
+        out = np.empty(n)
+        for i in range(n):
+            state = 0.995 * state + 0.005 * noise[i]
+            out[i] = state
+        peak = np.max(np.abs(out))
+        return (out / peak if peak > 1e-9 else out).astype(np.float64)
+
+    def load_sample(self, samples):
+        buf = np.asarray(samples, dtype=np.float64)
+        if buf.ndim > 1:
+            buf = buf.mean(axis=1)
+        self._buffer = buf
+
+    def render(self, vid, frames, preset):
+        voice = self._voices.get(vid)
+        if voice is None:
+            voice = {"pos": 0.0}
+            self._voices[vid] = voice
+        buf = self._buffer
+        n = len(buf)
+        window_len = max(64, min(n, int(preset["window_ms"] * 0.001 * self.samplerate)))
+        span = max(1, n - window_len)
+        if preset["freeze"]:
+            speed = 0.0
+        else:
+            speed = window_len / max(0.05, preset["drift_ms"] / 1000.0)   # samples/sec
+        voice["pos"] = (voice["pos"] + speed * frames / self.samplerate) % span
+        start = int(voice["pos"])
+        segment = buf[start:start + window_len]
+        if preset.get("reverse"):
+            segment = segment[::-1]
+        env = np.hanning(len(segment)) if len(segment) > 4 else np.ones(len(segment))
+        segment = segment * env
+        peak = np.max(np.abs(segment))
+        if peak > 1e-9:
+            segment = segment / peak
+        reps = int(np.ceil(frames / max(1, len(segment))))
+        return np.tile(segment, reps)[:frames].astype(np.float64)
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
 NOISE_PRESETS = [
     {"id": "noise_1", "tilt": -0.6, "gain": 0.35},   # breath / air texture, darker
     {"id": "noise_2", "tilt": 0.1, "gain": 0.4},      # water-like filtered noise
