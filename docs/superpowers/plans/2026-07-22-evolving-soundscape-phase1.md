@@ -1758,7 +1758,7 @@ rtk git commit -m "feat(soundscape): add delay and spectral transform engines"
   - `GRAINFX_PRESETS: list[dict]` — 5 presets covering granulation/ring-mod/AM/wavefold/saturation.
   - `class GranularTransform(samplerate, seed=None)` with `.render(vid, x, preset) -> np.ndarray`, `.sync(active_ids)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_transforms.py
@@ -1823,12 +1823,12 @@ def test_grainfx_voice_dropped_on_sync():
     assert 1 not in fx._voices
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -k "pitch or grainfx" -v`
 Expected: FAIL — `ImportError: cannot import name 'PitchResonanceTransform'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_transforms.py
@@ -1932,12 +1932,12 @@ class GranularTransform:
         sync_voices(self._voices, active_ids)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -v`
 Expected: PASS (14 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_transforms.py audio_prototype/tests/test_soundscape_transforms.py

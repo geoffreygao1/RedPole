@@ -52,6 +52,104 @@ class DelayTransform:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+PITCH_PRESETS = [
+    {"id": "pitch_1", "semitones": -12.0, "mix": 1.0},                          # sub-octave
+    {"id": "pitch_2", "semitones": 12.0, "mix": 0.5},                           # octave shimmer
+    {"id": "pitch_3", "semitones": 7.0, "mix": 0.6},                            # fifth / interval generation
+    {"id": "pitch_4", "semitones": 0.0, "mix": 1.0, "drift_cents": 25.0},       # pitch drift
+    {"id": "pitch_5", "semitones": 0.0, "mix": 1.0},                            # resonator-bank quantization (Phase 1: passthrough placeholder; a later phase can route this through ResonantPulseSource's resonator math)
+]
+
+
+class PitchResonanceTransform:
+    """Fractional-resample pitch shift (same technique TapeModulator uses
+    for warble) applied within each block (spec 8 row 3). Cross-block
+    continuity is a later refinement -- each block reads its own short
+    circular buffer, which is audible as a small artifact at very low
+    'semitones' shifts but is fine for Phase 1 tuning-by-ear."""
+
+    def __init__(self, samplerate, seed=None):
+        self.samplerate = samplerate
+        self._rng = np.random.default_rng(seed)
+        self._voices = {}
+
+    def render(self, vid, x, preset):
+        voice = self._voices.get(vid)
+        if voice is None:
+            voice = {"drift_phase": float(self._rng.uniform(0, 2 * np.pi))}
+            self._voices[vid] = voice
+        frames = len(x)
+        semitones = preset["semitones"]
+        if preset.get("drift_cents"):
+            voice["drift_phase"] += 2.0 * np.pi * 0.1 * frames / self.samplerate
+            semitones += preset["drift_cents"] / 100.0 * np.sin(voice["drift_phase"])
+        ratio = 2.0 ** (semitones / 12.0)
+        idx = np.arange(frames) * ratio
+        i0 = np.floor(idx).astype(np.int64) % frames
+        i1 = (i0 + 1) % frames
+        frac = idx - np.floor(idx)
+        shifted = x[i0] * (1.0 - frac) + x[i1] * frac
+        return shifted * preset["mix"] + x * (1.0 - preset["mix"])
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
+
+GRAINFX_PRESETS = [
+    {"id": "grainfx_1", "kind": "granulate", "grain_ms": 30, "scatter": 0.3},
+    {"id": "grainfx_2", "kind": "ring_mod", "freq_hz": 180.0, "mix": 0.5},
+    {"id": "grainfx_3", "kind": "am", "freq_hz": 6.0, "depth": 0.6},
+    {"id": "grainfx_4", "kind": "wavefold", "drive": 2.5},
+    {"id": "grainfx_5", "kind": "saturate", "drive": 3.0},
+]
+
+
+class GranularTransform:
+    """Granulation + the spec 8 row 4 texture family (ring mod, AM,
+    wavefolding, saturation) -- numpy-only waveshaping applied per-block."""
+
+    def __init__(self, samplerate, seed=None):
+        self.samplerate = samplerate
+        self._rng = np.random.default_rng(seed)
+        self._voices = {}
+
+    def render(self, vid, x, preset):
+        voice = self._voices.get(vid)
+        if voice is None:
+            voice = {"phase": 0.0}
+            self._voices[vid] = voice
+        frames = len(x)
+        kind = preset["kind"]
+        t = np.arange(frames, dtype=np.float64) / self.samplerate
+        if kind == "granulate":
+            grain_len = max(8, int(preset["grain_ms"] * 0.001 * self.samplerate))
+            out = x.copy()
+            n_grains = frames // grain_len
+            for g in range(n_grains):
+                if self._rng.random() < preset["scatter"]:
+                    start, end = g * grain_len, min(frames, (g + 1) * grain_len)
+                    src_offset = int(self._rng.integers(-grain_len, grain_len))
+                    src_start = int(np.clip(start + src_offset, 0, frames - (end - start)))
+                    out[start:end] = x[src_start:src_start + (end - start)]
+            return out
+        if kind == "ring_mod":
+            carrier = np.sin(2.0 * np.pi * preset["freq_hz"] * t + voice["phase"])
+            voice["phase"] = float((voice["phase"] + 2.0 * np.pi * preset["freq_hz"] * frames / self.samplerate) % (2 * np.pi))
+            return x * carrier * preset["mix"] + x * (1.0 - preset["mix"])
+        if kind == "am":
+            lfo = 1.0 - preset["depth"] * 0.5 * (1.0 + np.sin(2.0 * np.pi * preset["freq_hz"] * t + voice["phase"]))
+            voice["phase"] = float((voice["phase"] + 2.0 * np.pi * preset["freq_hz"] * frames / self.samplerate) % (2 * np.pi))
+            return x * lfo
+        if kind == "wavefold":
+            y = x * preset["drive"]
+            return np.sin(y) - 0.15 * np.sin(3.0 * y)
+        if kind == "saturate":
+            return np.tanh(x * preset["drive"])
+        raise ValueError(f"unknown granular-transform kind {kind!r}")
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
 
 SPECTRAL_PRESETS = [
     {"id": "spectral_1", "suspension": 0.1, "smear": 0.0},   # low-pass-ish (mild)
