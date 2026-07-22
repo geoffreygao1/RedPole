@@ -90,6 +90,8 @@ class WebEngine:
         self.loop_array = array
 
     def generate_block(self, frames):
+        if self.mode == "synth":
+            return self._generate_synth_block(frames)
         if self.loop_array is None:
             raise RuntimeError("No loop loaded; call load_loop() first")
 
@@ -173,3 +175,24 @@ class WebEngine:
         dry_gain = min(1.0, 2.0 * (1.0 - mix))
         wet_gain = min(1.0, 2.0 * mix)
         return soft_clip(dry_gain * base + wet_gain * wet).astype(np.float32)
+
+    def _generate_synth_block(self, frames):
+        layers = self.registry.snapshot()
+        if not layers:
+            self.spectral_smear.process(np.zeros(frames, dtype=np.float32))
+            return np.zeros(frames, dtype=np.float32)
+
+        crowd = CrowdState.from_layers(layers)
+        entry = self.entry_gestures.process(layers, frames, crowd.density)
+        voice_blocks = self.synth.block(layers, frames)
+
+        dry = np.zeros(frames, dtype=np.float64)
+        for layer in layers:
+            gain = 0.25 + 0.5 * val_to_unit(layer["val"])
+            gain *= 1.0 + entry.engine_gain(layer["engine"])
+            dry += voice_blocks[layer["id"]] * gain
+        dry /= max(1.0, np.sqrt(len(layers)))
+
+        mix = float(np.clip(self.wet_dry, 0.0, 1.0))
+        dry_gain = min(1.0, 2.0 * (1.0 - mix))
+        return soft_clip(dry_gain * dry).astype(np.float32)
