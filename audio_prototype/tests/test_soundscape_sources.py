@@ -217,3 +217,42 @@ def test_texture_voice_dropped_on_sync():
     assert 1 in src._voices
     src.sync([])
     assert 1 not in src._voices
+
+from soundscape_sources import SOURCE_PRESETS, SourceBank
+
+
+def test_source_presets_has_exactly_25_unique_ids():
+    assert len(SOURCE_PRESETS) == 25
+    assert len({p["id"] for p in SOURCE_PRESETS}) == 25
+
+
+def test_source_bank_renders_every_preset_without_error():
+    bank = SourceBank(44100, seed=7)
+    assignment = _assignment()
+    for preset in SOURCE_PRESETS:
+        out = bank.render(1, preset["id"], assignment, 0.03, 0.68, 0.94, 90.0, 512)
+        assert out.shape == (512,)
+        assert not np.any(np.isnan(out))
+        bank.sync([])  # reset voice state between presets sharing id 1
+
+
+def test_source_bank_sync_clears_all_engines():
+    bank = SourceBank(44100, seed=7)
+    assignment = _assignment()
+    bank.render(1, "additive_1", assignment, 0.03, 0.68, 0.94, 90.0, 256)
+    bank.render(1, "granular_1", assignment, 0.03, 0.68, 0.94, 90.0, 256)
+    bank.sync([])
+    assert bank.additive._voices == {}
+    assert bank.granular._voices == {}
+    assert bank.resonant._voices == {}
+    assert bank.noise._voices == {}
+    assert bank.texture._voices == {}
+
+
+def test_source_bank_unknown_preset_raises():
+    bank = SourceBank(44100, seed=7)
+    try:
+        bank.preset("not_a_real_preset")
+        assert False, "expected KeyError"
+    except KeyError:
+        pass

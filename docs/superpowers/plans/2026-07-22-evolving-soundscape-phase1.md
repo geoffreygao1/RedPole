@@ -1421,7 +1421,7 @@ rtk git commit -m "feat(soundscape): add sample texture source engine"
   - `SOURCE_PRESETS: list[dict]` — all 25 presets, each with an added `"engine"` key.
   - `class SourceBank(samplerate, seed=None)` with `.preset(preset_id) -> dict`, `.render(vid, preset_id, assignment, hue, sat, val, bpm, frames) -> np.ndarray`, `.sync(active_ids)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_sources.py
@@ -1465,12 +1465,12 @@ def test_source_bank_unknown_preset_raises():
         pass
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -k source_bank -v`
 Expected: FAIL — `ImportError: cannot import name 'SourceBank'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_sources.py
@@ -1530,12 +1530,12 @@ class SourceBank:
 
 Move the `from soundscape_color import calibrate_color` line up to the top import block instead of leaving it mid-file — the snippet places it there only to show where it's newly needed relative to earlier tasks.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_sources.py -v`
 Expected: PASS (26 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_sources.py audio_prototype/tests/test_soundscape_sources.py

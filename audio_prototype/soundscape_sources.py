@@ -7,6 +7,7 @@ throughout audio_prototype (soundscape_voices.sync_voices).
 
 import numpy as np
 
+from soundscape_color import calibrate_color
 from soundscape_harmony import midi_to_hz
 from soundscape_voices import sync_voices
 from synth_source import SeedBank
@@ -121,6 +122,7 @@ class SampleTextureSource:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+
 NOISE_PRESETS = [
     {"id": "noise_1", "tilt": -0.6, "gain": 0.35},   # breath / air texture, darker
     {"id": "noise_2", "tilt": 0.1, "gain": 0.4},      # water-like filtered noise
@@ -164,6 +166,7 @@ class FilteredNoiseSource:
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
+
 
 RESONANT_PRESETS = [
     {"id": "resonant_1", "interval_semitones": (0,), "decay": 0.9975, "excite_gain": 0.6},
@@ -230,6 +233,7 @@ class ResonantPulseSource:
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
 
+
 GRANULAR_PRESETS = [
     {"id": "granular_1", "grain_ms": 60, "density_hz": 6, "spread_ms": 40},
     {"id": "granular_2", "grain_ms": 90, "density_hz": 10, "spread_ms": 60},
@@ -290,3 +294,54 @@ class GranularCloudSource:
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
+
+
+SOURCE_PRESETS = []
+for _engine_name, _presets in (
+    ("additive", ADDITIVE_PRESETS),
+    ("granular", GRANULAR_PRESETS),
+    ("resonant", RESONANT_PRESETS),
+    ("noise", NOISE_PRESETS),
+    ("texture", TEXTURE_PRESETS),
+):
+    for _p in _presets:
+        SOURCE_PRESETS.append({**_p, "engine": _engine_name})
+
+
+class SourceBank:
+    """Owns one instance of each of the 5 source engines and dispatches a
+    layer's render() call to the engine named by its preset (spec 7, 12)."""
+
+    def __init__(self, samplerate, seed=None):
+        self.additive = AdditiveDroneSource(samplerate, seed=seed)
+        self.granular = GranularCloudSource(samplerate, seed=seed)
+        self.resonant = ResonantPulseSource(samplerate, seed=seed)
+        self.noise = FilteredNoiseSource(samplerate, seed=seed)
+        self.texture = SampleTextureSource(samplerate, seed=seed)
+        self._by_id = {p["id"]: p for p in SOURCE_PRESETS}
+
+    def preset(self, preset_id):
+        return self._by_id[preset_id]
+
+    def render(self, vid, preset_id, assignment, hue, sat, val, bpm, frames):
+        preset = self.preset(preset_id)
+        timbre = calibrate_color(hue, sat, val)
+        engine = preset["engine"]
+        if engine == "additive":
+            return self.additive.render(vid, assignment, timbre, frames, preset)
+        if engine == "granular":
+            return self.granular.render(vid, timbre, bpm, frames, preset)
+        if engine == "resonant":
+            return self.resonant.render(vid, assignment, bpm, frames, preset)
+        if engine == "noise":
+            return self.noise.render(vid, timbre, frames, preset)
+        if engine == "texture":
+            return self.texture.render(vid, frames, preset)
+        raise ValueError(f"unknown source engine {engine!r}")
+
+    def sync(self, active_ids):
+        self.additive.sync(active_ids)
+        self.granular.sync(active_ids)
+        self.resonant.sync(active_ids)
+        self.noise.sync(active_ids)
+        self.texture.sync(active_ids)
