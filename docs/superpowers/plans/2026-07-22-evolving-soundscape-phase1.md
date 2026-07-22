@@ -1960,7 +1960,7 @@ rtk git commit -m "feat(soundscape): add pitch/resonance and granular-fx transfo
   - `TRANSFORM_PRESETS: list[dict]` — all 25 presets with an added `"engine"` key.
   - `class TransformBank(samplerate, seed=None)` with `.preset(preset_id)`, `.render(vid, preset_id, x, bpm) -> np.ndarray`, `.sync(active_ids)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_transforms.py
@@ -2014,12 +2014,12 @@ def test_transform_bank_renders_every_preset_without_error():
         bank.sync([])
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -k "spatial or transform_bank or TRANSFORM_PRESETS" -v`
 Expected: FAIL — `ImportError: cannot import name 'SpatialDiffusionTransform'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # append to audio_prototype/soundscape_transforms.py
@@ -2123,12 +2123,12 @@ class TransformBank:
         self.spatial.sync(active_ids)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -v`
 Expected: PASS (20 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_transforms.py audio_prototype/tests/test_soundscape_transforms.py

@@ -128,3 +128,52 @@ def test_grainfx_voice_dropped_on_sync():
     assert 1 in fx._voices
     fx.sync([])
     assert 1 not in fx._voices
+
+from soundscape_transforms import SPATIAL_PRESETS, TRANSFORM_PRESETS, SpatialDiffusionTransform, TransformBank
+
+
+def test_spatial_has_five_presets_with_required_keys():
+    assert len(SPATIAL_PRESETS) == 5
+    for p in SPATIAL_PRESETS:
+        assert "id" in p and "kind" in p
+
+
+def test_spatial_reverb_preset_adds_tail_energy():
+    fx = SpatialDiffusionTransform(44100)
+    reverb_preset = next(p for p in SPATIAL_PRESETS if p["kind"] == "reverb")
+    x = np.zeros(4096)
+    x[0] = 1.0
+    out = fx.render(1, x, reverb_preset)
+    assert not np.any(np.isnan(out))
+    assert float(np.sqrt(np.mean(out[1000:] ** 2))) > 0.0
+
+
+def test_spatial_distance_preset_is_bounded():
+    fx = SpatialDiffusionTransform(44100)
+    distance_preset = next(p for p in SPATIAL_PRESETS if p["kind"] == "distance")
+    rng = np.random.default_rng(0)
+    out = fx.render(1, rng.uniform(-0.5, 0.5, size=1024), distance_preset)
+    assert not np.any(np.isnan(out))
+    assert np.max(np.abs(out)) < 5.0
+
+
+def test_spatial_voice_dropped_on_sync():
+    fx = SpatialDiffusionTransform(44100)
+    fx.render(1, np.zeros(256), SPATIAL_PRESETS[0])
+    assert 1 in fx._voices
+    fx.sync([])
+    assert 1 not in fx._voices
+
+
+def test_transform_presets_has_exactly_25_unique_ids():
+    assert len(TRANSFORM_PRESETS) == 25
+    assert len({p["id"] for p in TRANSFORM_PRESETS}) == 25
+
+
+def test_transform_bank_renders_every_preset_without_error():
+    bank = TransformBank(44100, seed=8)
+    for preset in TRANSFORM_PRESETS:
+        out = bank.render(1, preset["id"], np.zeros(512), 100.0)
+        assert out.shape == (512,)
+        assert not np.any(np.isnan(out))
+        bank.sync([])

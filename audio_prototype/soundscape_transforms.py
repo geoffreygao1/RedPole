@@ -4,6 +4,7 @@ create-on-sight/GC lifecycle as the source engines."""
 
 import numpy as np
 
+from reverb import SchroederReverb
 from soundscape_voices import sync_voices
 from spectral_stretch import SpectralSmear
 
@@ -51,6 +52,7 @@ class DelayTransform:
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
+
 
 PITCH_PRESETS = [
     {"id": "pitch_1", "semitones": -12.0, "mix": 1.0},                          # sub-octave
@@ -182,3 +184,100 @@ class SpectralTransform:
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
+
+
+SPATIAL_PRESETS = [
+    {"id": "spatial_1", "kind": "reverb", "reverb_style": "bright_room", "size": 0.25, "send": 0.3},
+    {"id": "spatial_2", "kind": "reverb", "reverb_style": "wash", "size": 0.8, "send": 0.6},
+    {"id": "spatial_3", "kind": "rotate", "rate_hz": 0.15, "depth": 0.7},
+    {"id": "spatial_4", "kind": "distance", "cutoff_mix": 0.7, "gain": 0.5},
+    {"id": "spatial_5", "kind": "diffuse_send", "send": 0.8},
+]
+
+
+class SpatialDiffusionTransform:
+    """Space family (spec 8 row 5): short/large reverb via the existing
+    SchroederReverb, distance via a one-pole lowpass + gain. 'rotate' and
+    'diffuse_send' return the mono signal unchanged here -- stereo pan LFO
+    and the shared background-field send are applied by SoundscapeEngine,
+    which is where panning/bus-mixing already lives (Task 15)."""
+
+    def __init__(self, samplerate):
+        self.samplerate = samplerate
+        self._voices = {}
+
+    def render(self, vid, x, preset):
+        voice = self._voices.get(vid)
+        if voice is None:
+            voice = {"reverb": None, "lp_state": 0.0}
+            self._voices[vid] = voice
+        frames = len(x)
+        kind = preset["kind"]
+        if kind == "reverb":
+            if voice["reverb"] is None:
+                voice["reverb"] = SchroederReverb(self.samplerate)
+                voice["reverb"].set_space(style=preset["reverb_style"], size=preset["size"], diffusion=0.6)
+            wet = np.asarray(voice["reverb"].process(x), dtype=np.float64)
+            return x * (1.0 - preset["send"]) + wet * preset["send"]
+        if kind == "distance":
+            coeff = 0.6 + 0.3 * preset["cutoff_mix"]
+            out = np.empty(frames, dtype=np.float64)
+            state = voice["lp_state"]
+            for i in range(frames):
+                state = coeff * state + (1.0 - coeff) * x[i]
+                out[i] = state
+            voice["lp_state"] = state
+            return out * preset["gain"]
+        if kind in ("rotate", "diffuse_send"):
+            return x
+        raise ValueError(f"unknown spatial-transform kind {kind!r}")
+
+    def sync(self, active_ids):
+        sync_voices(self._voices, active_ids)
+
+
+TRANSFORM_PRESETS = []
+for _engine_name, _presets in (
+    ("delay", DELAY_PRESETS),
+    ("spectral", SPECTRAL_PRESETS),
+    ("pitch", PITCH_PRESETS),
+    ("grainfx", GRAINFX_PRESETS),
+    ("spatial", SPATIAL_PRESETS),
+):
+    for _p in _presets:
+        TRANSFORM_PRESETS.append({**_p, "engine": _engine_name})
+
+
+class TransformBank:
+    def __init__(self, samplerate, seed=None):
+        self.delay = DelayTransform(samplerate)
+        self.spectral = SpectralTransform(samplerate, seed=seed)
+        self.pitch = PitchResonanceTransform(samplerate, seed=seed)
+        self.grainfx = GranularTransform(samplerate, seed=seed)
+        self.spatial = SpatialDiffusionTransform(samplerate)
+        self._by_id = {p["id"]: p for p in TRANSFORM_PRESETS}
+
+    def preset(self, preset_id):
+        return self._by_id[preset_id]
+
+    def render(self, vid, preset_id, x, bpm):
+        preset = self.preset(preset_id)
+        engine = preset["engine"]
+        if engine == "delay":
+            return self.delay.render(vid, x, bpm, preset)
+        if engine == "spectral":
+            return self.spectral.render(vid, x, preset)
+        if engine == "pitch":
+            return self.pitch.render(vid, x, preset)
+        if engine == "grainfx":
+            return self.grainfx.render(vid, x, preset)
+        if engine == "spatial":
+            return self.spatial.render(vid, x, preset)
+        raise ValueError(f"unknown transform engine {engine!r}")
+
+    def sync(self, active_ids):
+        self.delay.sync(active_ids)
+        self.spectral.sync(active_ids)
+        self.pitch.sync(active_ids)
+        self.grainfx.sync(active_ids)
+        self.spatial.sync(active_ids)
