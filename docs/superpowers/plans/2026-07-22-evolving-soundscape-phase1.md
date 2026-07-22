@@ -155,7 +155,7 @@ rtk git commit -m "feat(soundscape): add calibrated-color mapping and voice-GC h
   - `midi_to_hz(midi) -> float|np.ndarray`.
   - `class HarmonicField(root_midi=62, tension_enabled=True)` with `.roles() -> tuple[str,...]`, `.weighted_role(rng) -> str`, `.semitone_for_role(role) -> int`, `.midi_for_role(role, octave_offset=0) -> float`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_harmony.py
@@ -194,12 +194,12 @@ def test_weighted_role_matches_declared_weights_over_many_draws():
         assert abs(counts[role] / n - weight) < 0.02
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_harmony.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_harmony'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_harmony.py
@@ -264,12 +264,12 @@ class HarmonicField:
         return self.root_midi + self.semitone_for_role(role) + 12 * int(octave_offset)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_harmony.py -v`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_harmony.py audio_prototype/tests/test_soundscape_harmony.py
