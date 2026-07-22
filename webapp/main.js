@@ -5,6 +5,7 @@ const PATCH_GRID_X = 480;
 const PATCH_GRID_Y = 56;
 const OUTPUT_GRID_X = 36;
 const OUTPUT_GRID_Y = 56;
+const APP_ASSET_VERSION = Date.now().toString();
 const JACK_RADIUS = 9;
 const PATCH_SOURCE_LIMIT = 25;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
@@ -128,7 +129,7 @@ function drawJack(ctx, x, y, color) {
 
 class App {
   constructor() {
-    this.worker = new Worker("worker.js");
+    this.worker = new Worker(`worker.js?v=${APP_ASSET_VERSION}`);
     this.sources = new Map(); // sourceId -> {x, y, color, bpm, slot, row, col}
     // FIFO queue of sources sent to the worker via "add_source" but not yet
     // confirmed by a "source_added" reply. The worker processes add_source
@@ -173,7 +174,7 @@ class App {
 
   async setupAudio() {
     this.audioContext = new AudioContext();
-    await this.audioContext.audioWorklet.addModule("worklet.js");
+    await this.audioContext.audioWorklet.addModule(`worklet.js?v=${APP_ASSET_VERSION}`);
     this.workletNode = new AudioWorkletNode(this.audioContext, "ring-worklet-processor", {
       outputChannelCount: [2],
     });

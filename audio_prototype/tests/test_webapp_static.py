@@ -83,6 +83,16 @@ def test_deployed_worker_uses_webapp_audio_dependency_copies():
         assert deployed_copy.read_text() == source.read_text()
 
 
+def test_deployed_assets_are_cache_busted_from_index_to_worker():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert 'src="main.js?v=' in index_html
+    assert "const APP_ASSET_VERSION = Date.now().toString();" in main_js
+    assert 'new Worker(`worker.js?v=${APP_ASSET_VERSION}`)' in main_js
+    assert 'addModule(`worklet.js?v=${APP_ASSET_VERSION}`)' in main_js
+
+
 def test_pyodide_worker_cache_busts_python_sources():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 
