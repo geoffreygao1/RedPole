@@ -1558,7 +1558,7 @@ rtk git commit -m "feat(soundscape): add SourceBank 25-preset registry and dispa
   - `SPECTRAL_PRESETS: list[dict]` — 5 presets, each `{"id", "suspension", "smear"}`.
   - `class SpectralTransform(samplerate, seed=None)` with `.render(vid, x, preset) -> np.ndarray`, `.sync(active_ids)` — reuses `SpectralSmear` per-voice instead of reimplementing an STFT.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_soundscape_transforms.py
@@ -1634,12 +1634,12 @@ def test_spectral_transform_voice_dropped_on_sync():
     assert 1 not in fx._voices
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'soundscape_transforms'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/soundscape_transforms.py
@@ -1730,12 +1730,12 @@ class SpectralTransform:
         sync_voices(self._voices, active_ids)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk python -m pytest tests/test_soundscape_transforms.py -v`
 Expected: PASS (7 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 rtk git add audio_prototype/soundscape_transforms.py audio_prototype/tests/test_soundscape_transforms.py
