@@ -83,65 +83,58 @@ class _Ev:
         self.y = y
 
 
-def test_drag_source_jack_to_transform_jack_creates_patch():
+def test_send_then_click_assign_creates_source_only_voice():
     root = _tk_root_or_skip()
     try:
         eng = SynthAudioEngine(seed=1)
         tab = SynthTab(root, eng)
         tab.bpm_var.set("90")
-        sx, sy = source_cell_center(0, 1)        # additive_2
-        tx, ty = transform_cell_center(0, 0)     # delay_1
-        tab._on_press(_Ev(sx, sy))
-        tab._on_release(_Ev(tx, ty))
+        tab._on_send()
+        cid = next(iter(tab.model.sources))
+        tab._select_source(cid)
+        gx, gy = source_cell_center(0, 1)              # additive_2
+        tab._on_press(_Ev(gx, gy))
+        tab._on_release(_Ev(gx, gy))                   # click, no drag
         patches = eng.active_patches()
         assert len(patches) == 1
         assert patches[0]["source_preset"] == "additive_2"
-        assert patches[0]["transform_preset"] == "delay_1"
-    finally:
-        root.destroy()
-
-
-def test_release_off_transform_grid_makes_source_only_patch():
-    root = _tk_root_or_skip()
-    try:
-        eng = SynthAudioEngine(seed=1)
-        tab = SynthTab(root, eng)
-        tab.bpm_var.set("90")
-        sx, sy = source_cell_center(2, 0)        # resonant_1
-        tab._on_press(_Ev(sx, sy))
-        tab._on_release(_Ev(5, 5))               # off any transform jack
-        patches = eng.active_patches()
-        assert len(patches) == 1
-        assert patches[0]["source_preset"] == "resonant_1"
         assert patches[0]["transform_preset"] is None
+        assert not tab.model.sources                   # source consumed
     finally:
         root.destroy()
 
 
-def test_press_off_source_grid_starts_no_cable():
-    root = _tk_root_or_skip()
-    try:
-        eng = SynthAudioEngine(seed=1)
-        tab = SynthTab(root, eng)
-        tab._on_press(_Ev(5, 5))                 # not on a source jack
-        tab._on_release(_Ev(*transform_cell_center(0, 0)))
-        assert eng.active_patches() == []
-    finally:
-        root.destroy()
-
-
-def test_remove_patch_disconnects_voice():
+def test_cable_from_placed_generator_jack_to_modifier_sets_transform():
     root = _tk_root_or_skip()
     try:
         eng = SynthAudioEngine(seed=1)
         tab = SynthTab(root, eng)
         tab.bpm_var.set("90")
-        tab._on_press(_Ev(*source_cell_center(0, 0)))
-        tab._on_release(_Ev(*transform_cell_center(1, 0)))
-        pid = eng.active_patches()[0]["id"]
-        tab._remove_patch(pid)
-        assert eng.active_patches() == []
+        tab._on_send()
+        cid = next(iter(tab.model.sources))
+        tab._select_source(cid)
+        gx, gy = source_cell_center(0, 0)
+        tab._on_press(_Ev(gx, gy)); tab._on_release(_Ev(gx, gy))
+        tab._on_press(_Ev(gx, gy))                     # press placed jack -> cable
+        tx, ty = transform_cell_center(0, 0)           # delay_1
+        tab._on_release(_Ev(tx, ty))
+        assert eng.active_patches()[0]["transform_preset"] == "delay_1"
     finally:
+        root.destroy()
+
+
+def test_play_pause_toggles_engine():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        assert eng.paused is True
+        tab._on_toggle_play()
+        assert eng.paused is False
+        tab._on_toggle_play()
+        assert eng.paused is True
+    finally:
+        eng.stop()
         root.destroy()
 
 from synth_tab import (

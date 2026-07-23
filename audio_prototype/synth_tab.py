@@ -1,7 +1,8 @@
-"""Synth tab: two 5x5 preset grids (source + transform) driving a
-SynthAudioEngine. This module holds the pure grid/selection/parsing helpers
-(unit-tested without Tk) and the SynthTab widget builder (added in a later
-task)."""
+"""Synth tab: web-app-style source workflow driving a SynthAudioEngine.
+
+This module holds pure grid/selection/parsing helpers, a pure SynthPatchModel,
+and the SynthTab widget builder.
+"""
 
 from soundscape_sources import SOURCE_PRESETS
 from soundscape_transforms import TRANSFORM_PRESETS
@@ -183,33 +184,36 @@ REFRESH_MS = 50
 
 
 class SynthTab:
-    """Drag-cable patch bay for the SoundscapeEngine: two 5x5 jack grids
-    (sources left, transforms right). Drag a cable from a source jack to a
-    transform jack to create a voice; release off the transform grid for a
-    source-only voice. Mirrors the Loop tab's cable interaction."""
+    """Web-app-style synth workflow: scan a finger color + BPM, Send it into
+    the Sources list, click a source then a generator jack to assign it
+    (single-use), and drag a cable from that placed jack to a modifier jack.
+    A Play/Pause button owns synth playback; a slider glides the harmonic
+    root live. Drives a pure SynthPatchModel and the SynthAudioEngine."""
 
     def __init__(self, parent, synth_engine):
         self.parent = parent
         self.engine = synth_engine
+        self.model = SynthPatchModel(synth_engine)
         self.frame = ttk.Frame(parent)
         self.frame.pack(fill="both", expand=True)
         self.refresh_ms = REFRESH_MS
 
-        # patch_id -> {color, source_cell, transform_cell, bpm, source_id, transform_id}
-        self._patches = {}
-        self._patch_rows = {}
-        self._drag_source_cell = None
+        self._selected_source_id = None
+        self._source_rows = {}      # cid -> row frame
+        self._voice_rows = {}       # pid -> row frame
+        self._drag_from_pid = None  # cabling from a placed generator jack
         self._drag_pos = None
 
         self.hue_var = tk.DoubleVar(value=0.0)
         self.sat_var = tk.DoubleVar(value=0.75)
         self.val_var = tk.DoubleVar(value=0.64)
         self.bpm_var = tk.StringVar(value="70")
-        self.root_var = tk.StringVar()
+        self.root_label_var = tk.StringVar()
 
         self._build_controls()
         self._build_bay()
-        self._build_patch_list()
+        self._build_sources_list()
+        self._build_voice_list()
         self._build_waveform()
         self._schedule_refresh()
 
@@ -219,8 +223,13 @@ class SynthTab:
         panel = ttk.Frame(self.frame)
         panel.grid(row=0, column=0, sticky="nw", padx=8, pady=8)
 
-        colorbox = ttk.LabelFrame(panel, text="Finger color + BPM")
-        colorbox.pack(fill="x")
+        transport = ttk.Frame(panel)
+        transport.pack(fill="x")
+        self.play_button = ttk.Button(transport, text="Play", command=self._on_toggle_play)
+        self.play_button.pack(fill="x")
+
+        colorbox = ttk.LabelFrame(panel, text="Scan input - finger color + BPM")
+        colorbox.pack(fill="x", pady=(8, 0))
         self.picker = tk.Canvas(
             colorbox, width=PICKER_W, height=PICKER_H, highlightthickness=1, cursor="cross"
         )
@@ -239,21 +248,23 @@ class SynthTab:
         ttk.Button(colorbox, text="Random", command=self._on_random).grid(
             row=2, column=0, sticky="ew", pady=(8, 0)
         )
+        ttk.Button(colorbox, text="Send", command=self._on_send).grid(
+            row=2, column=1, sticky="ew", pady=(8, 0)
+        )
 
-        rootbox = ttk.LabelFrame(panel, text="Harmonic root")
+        rootbox = ttk.LabelFrame(panel, text="Harmonic root (live)")
         rootbox.pack(fill="x", pady=(8, 0))
-        labels = [label for label, _midi in ROOT_NOTE_CHOICES]
-        self._root_by_label = {label: midi for label, midi in ROOT_NOTE_CHOICES}
-        current = next(
-            label for label, midi in ROOT_NOTE_CHOICES if midi == self.engine.root_midi
+        lo = ROOT_NOTE_CHOICES[0][1]
+        hi = ROOT_NOTE_CHOICES[-1][1]
+        self._root_min, self._root_max = lo, hi
+        self.root_scale = ttk.Scale(
+            rootbox, from_=lo, to=hi, orient="horizontal", command=self._on_root_slider
         )
-        self.root_var.set(current)
-        ttk.Combobox(
-            rootbox, textvariable=self.root_var, values=labels, state="readonly", width=6
-        ).grid(row=0, column=0, padx=4, pady=4)
-        ttk.Button(rootbox, text="Apply (clears patches)", command=self._on_apply_root).grid(
-            row=0, column=1, padx=4
-        )
+        self.root_scale.set(self.engine.root_midi)
+        self.root_scale.grid(row=0, column=0, sticky="ew", padx=4, pady=4)
+        rootbox.columnconfigure(0, weight=1)
+        self._update_root_label(self.engine.root_midi)
+        ttk.Label(rootbox, textvariable=self.root_label_var, width=6).grid(row=0, column=1, padx=4)
 
         ttk.Button(panel, text="Load Sample...", command=self._on_load_sample).pack(
             fill="x", pady=(8, 0)
@@ -294,19 +305,15 @@ class SynthTab:
         self._set_pick(x, y)
         self.bpm_var.set(f"{bpm:.0f}")
 
-    def _on_apply_root(self):
-        if self.engine.active_patches() and not messagebox.askokcancel(
-            "Change root note",
-            "Changing the harmonic root rebuilds the engine and removes all "
-            "active patches. Continue?",
-        ):
-            return
-        self.engine.set_root_midi(self._root_by_label[self.root_var.get()])
-        for row in list(self._patch_rows.values()):
-            row.destroy()
-        self._patch_rows.clear()
-        self._patches.clear()
-        self._redraw_bay()
+    def _on_root_slider(self, value):
+        midi = float(value)
+        self.engine.set_root(midi)
+        self._update_root_label(midi)
+
+    def _update_root_label(self, midi):
+        nearest = int(round(float(midi)))
+        label = next((lbl for lbl, m in ROOT_NOTE_CHOICES if m == nearest), str(nearest))
+        self.root_label_var.set(label)
 
     def _on_load_sample(self):
         path = filedialog.askopenfilename(
@@ -319,18 +326,89 @@ class SynthTab:
         except Exception as exc:
             messagebox.showerror("Failed to load sample", str(exc))
 
+    # ---------- transport ----------
+
+    def _on_toggle_play(self):
+        if self.engine.paused:
+            try:
+                self.engine.resume()
+            except Exception as exc:
+                messagebox.showerror("Synth audio", f"Could not start synth audio: {exc}")
+                return
+        else:
+            self.engine.pause()
+        self._sync_play_button()
+
+    def _sync_play_button(self):
+        self.play_button.configure(text="Play" if self.engine.paused else "Pause")
+
+    # ---------- send + sources ----------
+
+    def _on_send(self):
+        if self.model.total_count() >= self.model.limit:
+            messagebox.showinfo("Sources full", f"Maximum voices reached ({self.model.limit}).")
+            return
+        bpm = parse_bpm(self.bpm_var.get())
+        if bpm is None:
+            messagebox.showerror("Invalid BPM", f"BPM must be a number ({self.bpm_var.get()!r}).")
+            return
+        cid = self.model.add_source(
+            self.hue_var.get(), self.sat_var.get(), self.val_var.get(), bpm, self._color_hex()
+        )
+        if cid is not None:
+            self._add_source_row(cid)
+
+    def _build_sources_list(self):
+        box = ttk.LabelFrame(self.frame, text="Sources - click one, then click a generator jack")
+        box.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.sources_frame = ttk.Frame(box)
+        self.sources_frame.pack(fill="both", expand=True)
+
+    def _add_source_row(self, cid):
+        src = self.model.sources[cid]
+        row = ttk.Frame(self.sources_frame)
+        row.pack(fill="x", pady=2)
+        tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=src["color"]).pack(
+            side="left", padx=(0, 6)
+        )
+        btn = ttk.Button(
+            row, text=f"{src['bpm']:.0f} BPM", width=12, command=lambda: self._select_source(cid)
+        )
+        btn.pack(side="left", padx=(0, 8))
+        ttk.Button(row, text="Remove", command=lambda: self._remove_source(cid)).pack(side="right")
+        self._source_rows[cid] = row
+        self._refresh_source_selection()
+
+    def _select_source(self, cid):
+        self._selected_source_id = cid
+        self._refresh_source_selection()
+
+    def _refresh_source_selection(self):
+        for cid, row in self._source_rows.items():
+            state = "selected" if cid == self._selected_source_id else "normal"
+            for child in row.winfo_children():
+                if isinstance(child, tk.Canvas):
+                    child.configure(highlightbackground="white" if state == "selected" else "#888")
+
+    def _remove_source(self, cid):
+        self.model.remove_source(cid)
+        row = self._source_rows.pop(cid, None)
+        if row is not None:
+            row.destroy()
+        if self._selected_source_id == cid:
+            self._selected_source_id = None
+
     # ---------- patch bay ----------
 
     def _build_bay(self):
         box = ttk.LabelFrame(
-            self.frame, text="Patch bay - drag a source jack to a transform jack"
+            self.frame, text="Patch bay - assign a source to a generator, then cable it to a modifier"
         )
         box.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
         self.frame.columnconfigure(1, weight=1)
         self.frame.rowconfigure(0, weight=1)
         self.bay = tk.Canvas(
-            box, width=SYNTH_CANVAS_W, height=SYNTH_CANVAS_H,
-            bg="#161616", highlightthickness=0,
+            box, width=SYNTH_CANVAS_W, height=SYNTH_CANVAS_H, bg="#161616", highlightthickness=0
         )
         self.bay.pack(fill="both", expand=True)
         self.bay.bind("<Button-1>", self._on_press)
@@ -341,19 +419,15 @@ class SynthTab:
     def _draw_grid(self, origin, rows, title):
         ox, oy = origin
         c = self.bay
-        c.create_text(ox, oy - 22, text=title, anchor="w", fill="#bdbdbd",
-                      font=("TkDefaultFont", 9))
+        c.create_text(ox, oy - 22, text=title, anchor="w", fill="#bdbdbd", font=("TkDefaultFont", 9))
         for r, name in enumerate(rows):
             cy = oy + r * SYNTH_CELL + SYNTH_CELL / 2
-            c.create_text(ox - 10, cy, text=name, anchor="e", fill="#d5d5d5",
-                          font=("TkDefaultFont", 9))
+            c.create_text(ox - 10, cy, text=name, anchor="e", fill="#d5d5d5", font=("TkDefaultFont", 9))
             for col in range(SYNTH_GRID_SIZE):
                 x0 = ox + col * SYNTH_CELL
                 y0 = oy + r * SYNTH_CELL
-                c.create_rectangle(x0, y0, x0 + SYNTH_CELL, y0 + SYNTH_CELL,
-                                   outline="#444", fill="#222")
-                c.create_text(x0 + 8, y0 + 10, text=VARIANT_LABELS[col],
-                              fill="#808080", font=("TkDefaultFont", 8))
+                c.create_rectangle(x0, y0, x0 + SYNTH_CELL, y0 + SYNTH_CELL, outline="#444", fill="#222")
+                c.create_text(x0 + 8, y0 + 10, text=VARIANT_LABELS[col], fill="#808080", font=("TkDefaultFont", 8))
 
     def _draw_jacks(self, origin, filled):
         for r in range(SYNTH_GRID_SIZE):
@@ -369,94 +443,80 @@ class SynthTab:
     def _redraw_bay(self):
         c = self.bay
         c.delete("all")
-        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "sources")
-        self._draw_grid(SYNTH_TRANSFORM_ORIGIN, SYNTH_TRANSFORM_ROWS, "transforms")
+        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "generators")
+        self._draw_grid(SYNTH_TRANSFORM_ORIGIN, SYNTH_TRANSFORM_ROWS, "modifiers")
 
         source_fill = {}
         transform_fill = {}
-        for p in self._patches.values():
-            source_fill[p["source_cell"]] = p["color"]
-            if p["transform_cell"] is not None:
-                transform_fill[p["transform_cell"]] = p["color"]
+        for voice in self.model.voices.values():
+            source_fill[voice["source_cell"]] = voice["color"]
+            if voice["transform_cell"] is not None:
+                transform_fill[voice["transform_cell"]] = voice["color"]
 
-        # cables under the jacks
-        for p in self._patches.values():
-            sx, sy = source_cell_center(*p["source_cell"])
-            if p["transform_cell"] is not None:
-                tx, ty = transform_cell_center(*p["transform_cell"])
-                c.create_line(*_patch_cable_points(sx, sy, tx, ty),
-                              fill=p["color"], width=3)
+        for voice in self.model.voices.values():
+            sx, sy = source_cell_center(*voice["source_cell"])
+            if voice["transform_cell"] is not None:
+                tx, ty = transform_cell_center(*voice["transform_cell"])
+                c.create_line(*_patch_cable_points(sx, sy, tx, ty), fill=voice["color"], width=3)
             else:
-                c.create_line(sx, sy, sx + 18, sy, fill=p["color"], width=3)
+                c.create_line(sx, sy, sx + 18, sy, fill=voice["color"], width=3)
 
-        if self._drag_source_cell is not None and self._drag_pos is not None:
-            sx, sy = source_cell_center(*self._drag_source_cell)
-            c.create_line(*_patch_cable_points(sx, sy, *self._drag_pos),
-                          fill=self._color_hex(), width=2, dash=(4, 3))
+        if self._drag_from_pid is not None and self._drag_pos is not None:
+            voice = self.model.voices.get(self._drag_from_pid)
+            if voice is not None:
+                sx, sy = source_cell_center(*voice["source_cell"])
+                c.create_line(*_patch_cable_points(sx, sy, *self._drag_pos),
+                              fill=voice["color"], width=2, dash=(4, 3))
 
         self._draw_jacks(SYNTH_SOURCE_ORIGIN, source_fill)
         self._draw_jacks(SYNTH_TRANSFORM_ORIGIN, transform_fill)
 
     def _on_press(self, event):
-        self._drag_source_cell = source_cell_at(event.x, event.y)
+        self._drag_from_pid = None
         self._drag_pos = None
+        cell = source_cell_at(event.x, event.y)
+        if cell is not None and cell in self.model.jack_to_pid:
+            # press on a placed generator jack -> begin a modifier cable
+            self._drag_from_pid = self.model.jack_to_pid[cell]
 
     def _on_drag(self, event):
-        if self._drag_source_cell is None:
+        if self._drag_from_pid is None:
             return
         self._drag_pos = (event.x, event.y)
         self._redraw_bay()
 
     def _on_release(self, event):
-        if self._drag_source_cell is None:
-            return
-        source_cell = self._drag_source_cell
-        transform_cell = transform_cell_at(event.x, event.y)
-        self._drag_source_cell = None
-        self._drag_pos = None
-        self._connect(source_cell, transform_cell)
-
-    def _connect(self, source_cell, transform_cell):
-        if len(self._patches) >= SYNTH_PATCH_LIMIT:
-            messagebox.showinfo("Patch bay full", f"Maximum voices reached ({SYNTH_PATCH_LIMIT}).")
+        if self._drag_from_pid is not None:
+            pid = self._drag_from_pid
+            self._drag_from_pid = None
+            self._drag_pos = None
+            transform_cell = transform_cell_at(event.x, event.y)
+            self.model.set_voice_transform(pid, transform_cell)
             self._redraw_bay()
             return
-        bpm = parse_bpm(self.bpm_var.get())
-        if bpm is None:
-            messagebox.showerror("Invalid BPM", f"BPM must be a number ({self.bpm_var.get()!r}).")
-            self._redraw_bay()
-            return
-        source_id = source_preset_id(*source_cell)
-        transform_id = (
-            transform_preset_id(*transform_cell) if transform_cell is not None else None
-        )
-        color = self._color_hex()
-        pid = self.engine.connect_patch(
-            self.hue_var.get(), self.sat_var.get(), self.val_var.get(),
-            bpm, source_id, transform_id,
-        )
-        self._patches[pid] = {
-            "color": color,
-            "source_cell": source_cell,
-            "transform_cell": transform_cell,
-            "bpm": bpm,
-            "source_id": source_id,
-            "transform_id": transform_id,
-        }
-        self._add_patch_row(pid, bpm, source_id, transform_id, color)
-        self._redraw_bay()
+        # no cable in progress: click-assign the selected source onto a generator jack
+        cell = source_cell_at(event.x, event.y)
+        if cell is not None and self._selected_source_id is not None:
+            cid = self._selected_source_id
+            pid = self.model.assign_source_to_generator(cid, cell)
+            if pid is not None:
+                self._selected_source_id = None
+                row = self._source_rows.pop(cid, None)
+                if row is not None:
+                    row.destroy()
+                self._add_voice_row(pid)
+                self._redraw_bay()
 
-    # ---------- patch list ----------
+    # ---------- voice list ----------
 
-    def _build_patch_list(self):
-        box = ttk.LabelFrame(self.frame, text="Active patches")
-        box.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
-        self.frame.rowconfigure(1, weight=1)
+    def _build_voice_list(self):
+        box = ttk.LabelFrame(self.frame, text="Active voices")
+        box.grid(row=1, column=1, sticky="nsew", padx=8, pady=(0, 8))
         canvas = tk.Canvas(box, height=120, highlightthickness=0)
         scrollbar = ttk.Scrollbar(box, orient="vertical", command=canvas.yview)
-        self.patch_list_frame = ttk.Frame(canvas)
-        window = canvas.create_window((0, 0), window=self.patch_list_frame, anchor="nw")
-        self.patch_list_frame.bind(
+        self.voice_list_frame = ttk.Frame(canvas)
+        window = canvas.create_window((0, 0), window=self.voice_list_frame, anchor="nw")
+        self.voice_list_frame.bind(
             "<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
@@ -464,31 +524,28 @@ class SynthTab:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-    def _add_patch_row(self, pid, bpm, source_id, transform_id, color_hex):
-        row = ttk.Frame(self.patch_list_frame)
+    def _add_voice_row(self, pid):
+        voice = self.model.voices[pid]
+        row = ttk.Frame(self.voice_list_frame)
         row.pack(fill="x", pady=2)
-        tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=color_hex).pack(
+        tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=voice["color"]).pack(
             side="left", padx=(0, 6)
         )
-        label = f"#{pid}  {source_id}"
-        if transform_id:
-            label += f" -> {transform_id}"
-        label += f"  (BPM {bpm:.0f})"
-        ttk.Label(row, text=label).pack(side="left", padx=(0, 8))
-        ttk.Button(row, text="Remove", command=lambda: self._remove_patch(pid)).pack(
-            side="right"
-        )
-        self._patch_rows[pid] = row
+        label = f"#{pid}  {voice['source_id']}  (BPM {voice['bpm']:.0f})"
+        lbl = ttk.Label(row, text=label)
+        lbl.pack(side="left", padx=(0, 8))
+        voice["_label_widget"] = lbl
+        ttk.Button(row, text="Remove", command=lambda: self._remove_voice(pid)).pack(side="right")
+        self._voice_rows[pid] = row
 
-    def _remove_patch(self, pid):
-        self.engine.disconnect_patch(pid)
-        self._patches.pop(pid, None)
-        row = self._patch_rows.pop(pid, None)
+    def _remove_voice(self, pid):
+        self.model.remove_voice(pid)
+        row = self._voice_rows.pop(pid, None)
         if row is not None:
             row.destroy()
         self._redraw_bay()
 
-    # ---------- waveform (lightweight Tk canvas) ----------
+    # ---------- waveform ----------
 
     def _build_waveform(self):
         box = ttk.LabelFrame(self.frame, text="Waveform")
@@ -517,8 +574,7 @@ class SynthTab:
             self.wave.coords(self.wave_line, *pts)
 
     def _schedule_refresh(self):
-        # Only redraw while this tab is actually visible -- keeps GIL holds
-        # tiny so they can't starve the audio producer thread.
         if self.frame.winfo_viewable():
             self._draw_wave()
+            self._sync_play_button()
         self.parent.after(self.refresh_ms, self._schedule_refresh)

@@ -54,6 +54,10 @@ class SynthAudioEngine:
         with self._lock:
             self.engine.disconnect_patch(patch_id)
 
+    def set_patch_transform(self, patch_id, transform_preset):
+        with self._lock:
+            self.engine.set_patch_transform(patch_id, transform_preset)
+
     def active_patches(self):
         with self._lock:
             return [
