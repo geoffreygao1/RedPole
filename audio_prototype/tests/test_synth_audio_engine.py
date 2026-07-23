@@ -37,6 +37,16 @@ def test_disconnect_last_patch_returns_to_silence():
     np.testing.assert_allclose(eng.generate_block(512), np.zeros(512))
 
 
+def test_set_reverb_and_delay_reach_the_wash():
+    eng = SynthAudioEngine(seed=1)
+    eng.set_reverb(0.7)
+    eng.set_delay(0.4)
+    assert abs(eng.engine.wash.reverb_amount - 0.7) < 1e-9
+    assert abs(eng.engine.wash.delay_amount - 0.4) < 1e-9
+    eng.set_reverb(5.0)                        # clamped
+    assert eng.engine.wash.reverb_amount == 1.0
+
+
 def test_active_patches_snapshot_shape():
     eng = SynthAudioEngine(seed=1)
     pid = eng.connect_patch(0.02, 0.7, 0.9, 88.0, "resonant_1", "spatial_1")

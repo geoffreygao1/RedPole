@@ -182,3 +182,11 @@ class SynthAudioEngine:
         with self._lock:
             self._root_target = float(target_midi)
             self.engine.set_root(target_midi)
+
+    def set_reverb(self, amount):
+        with self._lock:
+            self.engine.set_reverb(amount)
+
+    def set_delay(self, amount):
+        with self._lock:
+            self.engine.set_delay(amount)
