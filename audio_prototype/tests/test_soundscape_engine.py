@@ -29,6 +29,18 @@ def test_disconnect_removes_the_voice():
     np.testing.assert_allclose(silent, np.zeros(512))
 
 
+def test_set_patch_transform_updates_and_clears_without_new_patch():
+    engine = SoundscapeEngine(samplerate=44100, seed=1)
+    pid = engine.connect_patch(hue=0.03, sat=0.68, val=0.94, bpm=90.0,
+                               source_preset="additive_2", transform_preset=None)
+    engine.set_patch_transform(pid, "delay_1")
+    assert engine._patches[pid].transform_preset == "delay_1"
+    engine.set_patch_transform(pid, None)
+    assert engine._patches[pid].transform_preset is None
+    assert list(engine._patches.keys()) == [pid]  # same patch, no new id
+    engine.set_patch_transform(9999, "delay_1")   # unknown pid is a no-op
+
+
 def test_eight_patches_stay_bounded_and_nan_free():
     engine = SoundscapeEngine(samplerate=44100, seed=2)
     presets = ["additive_1", "granular_2", "resonant_3", "noise_4", "texture_5",

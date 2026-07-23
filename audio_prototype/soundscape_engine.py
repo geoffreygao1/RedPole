@@ -53,6 +53,11 @@ class SoundscapeEngine:
         self.allocator.release(pid)
         self._assignments.pop(pid, None)
 
+    def set_patch_transform(self, pid, transform_preset):
+        patch = self._patches.get(pid)
+        if patch is not None:
+            patch.transform_preset = transform_preset
+
     def generate_block(self, frames):
         patches = list(self._patches.values())
         active_ids = [p.id for p in patches]
