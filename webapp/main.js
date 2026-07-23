@@ -446,6 +446,7 @@ class App {
       await this.ensureSynthEngine();
       if (this.synthEngine.paused) {
         await this.synthEngine.resume();
+        this.scheduler?.triggerConnectedVoicesNow();
         this.playPauseButton.textContent = "Pause";
       } else {
         this.synthEngine.pause();
@@ -708,6 +709,11 @@ class App {
     this.renderSourceList();
   }
 
+  auditionSourceIfPlaying(sourceId) {
+    if (this.mode !== "synth" || !this.synthEngine || this.synthEngine.paused) return;
+    this.scheduler?.triggerVoiceNow(sourceId);
+  }
+
   assignSourceToOutput(sourceId, slot) {
     const source = this.sources.get(sourceId);
     if (!source || !this.outputSlotEnabled(slot)) return;
@@ -761,6 +767,7 @@ class App {
       });
       if (previousTrigger) {
         this.scheduler?.setVoiceTrigger(sourceId, previousTrigger);
+        this.auditionSourceIfPlaying(sourceId);
       }
     }
     this.selectedSourceId = null;
@@ -775,6 +782,7 @@ class App {
       this.scheduler?.setVoiceTrigger(sourceId, triggerPresetId(row, col));
       source.row = row;
       source.col = col;
+      this.auditionSourceIfPlaying(sourceId);
       return;
     }
     const engine =

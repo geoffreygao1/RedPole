@@ -68,6 +68,21 @@ def test_synth_wash_controls_default_to_seventy_percent():
     assert '<input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.7" />' in index_html
 
 
+def test_synth_play_and_live_patch_creation_audition_connected_voices():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+
+    assert "triggerVoiceNow(voiceId)" in scheduler_js
+    assert "triggerConnectedVoicesNow()" in scheduler_js
+    assert "noteDurationForPreset(preset)" in scheduler_js
+    assert "this.engine.triggerVoice(voiceId, this.midiForVoice(voice), this.noteDurationForPreset(preset));" in scheduler_js
+    assert "this.scheduler?.triggerConnectedVoicesNow();" in main_js
+    assert "auditionSourceIfPlaying(sourceId)" in main_js
+    assert "if (this.mode !== \"synth\" || !this.synthEngine || this.synthEngine.paused) return;" in main_js
+    assert "this.scheduler?.triggerVoiceNow(sourceId);" in main_js
+    assert "this.auditionSourceIfPlaying(sourceId);" in main_js
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 

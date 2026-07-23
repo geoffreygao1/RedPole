@@ -61,6 +61,23 @@ export class Scheduler {
     return this.rootMidi + voice.semitoneOffset + voice.centsOffset / 100.0;
   }
 
+  noteDurationForPreset(preset) {
+    return preset.beatsPerStep >= 8 ? 3.0 : 0.6;
+  }
+
+  triggerVoiceNow(voiceId) {
+    const voice = this.voices.get(voiceId);
+    const preset = TRIGGER_PRESETS[voice?.triggerId];
+    if (!voice || !preset) return;
+    this.engine.triggerVoice(voiceId, this.midiForVoice(voice), this.noteDurationForPreset(preset));
+  }
+
+  triggerConnectedVoicesNow() {
+    for (const voiceId of this.voices.keys()) {
+      this.triggerVoiceNow(voiceId);
+    }
+  }
+
   start() {
     if (this.event !== null) return;
     this.event = this.Tone.Transport.scheduleRepeat(() => this._tick(), TICK_SUBDIVISION);
@@ -84,8 +101,7 @@ export class Scheduler {
         if (engineVoice && engineVoice.held) continue; // already sustaining
       }
       if (Math.random() > preset.probability) continue;
-      const noteDur = preset.beatsPerStep >= 8 ? 3.0 : 0.6;
-      this.engine.triggerVoice(id, this.midiForVoice(voice), noteDur);
+      this.engine.triggerVoice(id, this.midiForVoice(voice), this.noteDurationForPreset(preset));
     }
   }
 }
