@@ -1,4 +1,8 @@
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -8,7 +12,8 @@ def test_loop_mode_cannot_post_play_before_loop_is_loaded():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
     assert "this.loopLoaded = false;" in main_js
-    assert 'this.mode === "loop" && !this.loopLoaded' in main_js
+    assert 'if (this.mode === "synth")' in main_js
+    assert "if (!this.loopLoaded)" in main_js
     assert 'this.worker.postMessage({ type: "play", mode: this.mode });' in main_js
 
 
@@ -46,9 +51,14 @@ def test_synth_mode_patch_labels_show_sound_bath_effects():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
     assert 'const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];' in main_js
-    assert 'const SYNTH_ROW_LABELS = ["stretch", "delay", "reverb", "stereo", "shape"];' in main_js
+    assert 'const SYNTH_ROW_LABELS = MODIFIER_ROWS;' in main_js
+    assert 'const SYNTH_SOURCE_ROWS = ["pluck", "pad", "bloom"];' in main_js
+    assert '"piano", "guitar", "tapeguitar", "tapebell", "casio"' in main_js
+    assert '"strings", "flute", "clarinet", "casio", "piano"' in main_js
+    assert '"strings", "flute", "clarinet", "guitar", "tapebell"' in main_js
     assert "this.rowLabels()" in main_js
     assert 'this.mode === "synth" ? SYNTH_ROW_LABELS : LOOP_ROW_LABELS' in main_js
+    assert "this.outputCellLabel(row, col)" in main_js
 
 
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
@@ -203,3 +213,36 @@ def test_web_synth_loads_local_samples_without_a_committed_manifest():
     assert 'type: "load_synth_sample"' in main_js
     assert 'msg.type === "load_synth_sample"' in worker_js
     assert "webapp/assets/samples/" in gitignore
+
+
+def test_webapp_js_passes_node_syntax_check():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+
+    files = sorted((ROOT / "webapp").glob("*.js"))
+    files.extend(sorted((ROOT / "webapp" / "generative").glob("*.js")))
+    for path in files:
+        result = subprocess.run(
+            [node, "--check", str(path.relative_to(ROOT))],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_webapp_generative_suite_passes_node_test():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+
+    result = subprocess.run(
+        [node, "--test", "webapp/generative/"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout

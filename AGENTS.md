@@ -4,12 +4,13 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab mirrors the web-app workflow and now has a clickbath-style soundbath source grid: granular, slowed resonant, plus multisample instruments as pluck/pad/bloom rows. Local gitignored `audio_prototype/assets/clickbath/*.wav` samples feed piano/guitar/casio/strings/flute/clarinet/tape bell/tape guitar voices when present; absent assets render silence for fresh clones/tests. SoundscapeEngine keeps the evolving-mix VoiceConductor and live gliding harmonic-root slider, and now runs the mono mix through a global reverb+delay wash with Synth tab sliders. Synth audio still runs on a producer thread with blocking write() at latency="high" and a lightweight tk-canvas waveform. Loop tab untouched; web app + firmware/TD still WIP.
-- **Last session:** 2026-07-23 — implemented clickbath soundbath desktop synth per docs/superpowers/plans/2026-07-23-clickbath-soundbath-desktop.md (spec: docs/superpowers/specs/2026-07-23-clickbath-soundbath-desktop-design.md).
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The web app now has a browser-native Tone.js synth MVP in Synth mode: clickbath pluck/pad/bloom source rows, a JS-ported harmonic field + pitch allocator + evolving VoiceConductor, per-voice modifier inserts, and a global reverb+delay wash. Loop mode still runs through the Pyodide worker path and `worker.js` is untouched.
+- **Last session:** 2026-07-23 — implemented the web Tone.js hybrid synth MVP per docs/superpowers/plans/2026-07-23-tonejs-hybrid-synth-mvp.md (spec: docs/superpowers/specs/2026-07-23-tonejs-hybrid-synth-design.md).
 - **Next up:**
-  - Tune by ear in the Synth tab: instrument source preset feel, wash depth/rate, evolving-mix depth/rate, color->timbre mapping, register/gain, root-note range.
+  - Manual browser smoke/tuning: `cd webapp && python -m http.server`, open Synth mode, assign a source to pluck/pad/bloom, cable it to a modifier, Play, then tune source levels, root glide, modifier presets, and wash amounts by ear.
+  - Phase 2 web synth sources: add bells and drone rows, then polish stretch/spectral quality.
   - Consider cable-click selection/removal, source-row drag-to-jack assignment, and persisting patches.
-  - Wire hardware finger-scan input into the Synth tab (spec Phase 3).
+  - Wire hardware finger-scan input into the Synth path.
   - Document the firmware serial message shape (base64 JPEG framing).
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 
