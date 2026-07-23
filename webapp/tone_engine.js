@@ -65,11 +65,11 @@ export class ToneEngine {
     if (this.master) return;
     this.Tone.Transport.bpm.value = TRANSPORT_BPM;
     this.master = new this.Tone.Gain(this.Tone.dbToGain(-6));
-    // Matches clickbath's wash character: a long convolution reverb (~10s
-    // decay, clickbath uses 10) and a tempo-synced feedback delay with a long
-    // trailing echo (clickbath: FeedbackDelay('2n', 0.85)).
+    // Extends clickbath's wash character with a longer tail and tempo-synced
+    // feedback delay for a denser max-wet sound bath.
     this.delay = new this.Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.78, wet: 0 });
-    this.reverb = new this.Tone.Reverb({ decay: 10, wet: 0 });
+    this.reverb = new this.Tone.Reverb({ decay: 14, preDelay: 0.05, wet: 0 });
+    this.reverb.decay = 14;
     this.transpose = new this.Tone.PitchShift({ pitch: 0, windowSize: 0.08, delayTime: 0.03, feedback: 0, wet: 1 });
     this.limiter = new this.Tone.Limiter(-1);
     this.master.chain(this.transpose, this.delay, this.reverb, this.limiter, this.Tone.Destination);
@@ -88,7 +88,12 @@ export class ToneEngine {
 
   setReverb(amount) {
     if (!this.reverb) return;
-    rampParam(this.reverb.wet, clamp(amount, 0, 1.5), 0.05);
+    amount = clamp(Number.isFinite(amount) ? amount : 0, 0, 1.5) / 1.5;
+    const shaped = amount * amount;
+    rampParam(this.reverb.wet, clamp(shaped * 1.25, 0, 1), 0.08);
+    if (this.delay?.feedback) {
+      rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);
+    }
   }
 
   setDelay(amount) {

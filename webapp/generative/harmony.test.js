@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mulberry32 } from "./rng.js";
-import { HarmonicField, ROLE_SEMITONES, midiToHz } from "./harmony.js";
+import { HARMONIC_PALETTES, HarmonicField, ROLE_SEMITONES, midiToHz } from "./harmony.js";
 
 test("midiForRole adds root + role semitone + octaves", () => {
   const f = new HarmonicField(62);
@@ -27,4 +27,18 @@ test("weightedRole is seed-deterministic and returns a valid role", () => {
 test("tensionEnabled=false drops the tension role", () => {
   const f = new HarmonicField(48, false);
   assert.ok(!f.roles().includes("tension"));
+});
+
+test("harmonic field can switch mood palettes", () => {
+  const f = new HarmonicField(48, true, "open");
+  assert.equal(f.midiForRole("fifth"), 55);
+  f.setMood("warm");
+  assert.equal(f.midiForRole("third"), 52);
+  f.setMood("dusk");
+  assert.equal(f.midiForRole("third"), 51);
+  f.setMood("glass");
+  assert.equal(f.midiForRole("lydian"), 54);
+  f.setMood("tension");
+  assert.ok(f.roles().includes("flatsecond"));
+  assert.deepEqual(Object.keys(HARMONIC_PALETTES), ["open", "warm", "dusk", "glass", "tension"]);
 });

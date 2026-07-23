@@ -85,6 +85,45 @@ def test_synth_mode_has_global_transpose_control():
     assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
 
 
+def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    style_css = (ROOT / "webapp" / "style.css").read_text()
+
+    assert 'class="patch-controls"' in index_html
+    assert 'class="patch-control knob-control"' in index_html
+    assert 'id="mood-select"' in index_html
+    assert '<option value="warm">Warm</option>' in index_html
+    assert "this.moodSelect = document.getElementById(\"mood-select\");" in main_js
+    assert "this.scheduler.setMood(this.moodSelect.value);" in main_js
+    assert "this.scheduler?.setMood(e.target.value);" in main_js
+    assert "syncKnobControl" in main_js
+    assert "--knob-angle" in main_js
+    assert ".knob-control" in style_css
+    assert "conic-gradient" in style_css
+
+
+def test_synth_output_jacks_use_roman_column_labels_not_instrument_names():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    start = main_js.index("\n  outputCellLabel(row, col)")
+    output_label_body = main_js[
+        start :
+        main_js.index("\n  drawPatchBay()", start)
+    ]
+    assert 'if (this.mode === "synth") return MACRO_COLS[col] ?? "";' in output_label_body
+    assert "SYNTH_SOURCE_INSTRUMENTS" not in output_label_body
+
+
+def test_reverb_high_end_is_extra_washed():
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
+
+    assert "this.reverb.decay = 14;" in tone_engine_js
+    assert "const shaped = amount * amount;" in tone_engine_js
+    assert "rampParam(this.reverb.wet, clamp(shaped * 1.25, 0, 1), 0.08);" in tone_engine_js
+    assert "rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);" in tone_engine_js
+
+
 def test_tone_buffers_uses_clickbath_base_url_for_sample_loading():
     tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
 
@@ -155,6 +194,8 @@ def test_deployed_assets_are_cache_busted_from_index_to_worker():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
     assert 'src="main.js?v=' in index_html
+    assert 'href="style.css?v=' in index_html
+    assert 'from "./scheduler.js?v=' in main_js
     assert 'from "./tone_engine.js?v=' in main_js
     assert "const APP_ASSET_VERSION = Date.now().toString();" in main_js
     assert 'new Worker(`worker.js?v=${APP_ASSET_VERSION}`)' in main_js

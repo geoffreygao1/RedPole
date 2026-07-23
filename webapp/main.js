@@ -1,5 +1,5 @@
-import { Scheduler } from "./scheduler.js";
-import { ToneEngine } from "./tone_engine.js?v=20260723-sample-base-url";
+import { Scheduler } from "./scheduler.js?v=20260723-trigger-mood";
+import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,
   MACRO_ROWS,
@@ -8,7 +8,7 @@ import {
   macroPresetId,
   sourceForSlot,
 } from "./soundbath_config.js";
-import { deriveFingerprint } from "./generative/scan-profile.js?v=20260723-extension-safe";
+import { deriveFingerprint } from "./generative/scan-profile.js?v=20260723-normalized-scan";
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
@@ -188,10 +188,13 @@ class App {
     this.reverbSlider = document.getElementById("reverb-slider");
     this.delaySlider = document.getElementById("delay-slider");
     this.transposeSlider = document.getElementById("transpose-slider");
+    this.moodSelect = document.getElementById("mood-select");
+    this.knobControls = Array.from(document.querySelectorAll(".knob-control input[type='range']"));
 
     this.buildPicker();
     this.drawPicker();
     this.updateScanPreview();
+    this.knobControls.forEach((input) => this.syncKnobControl(input));
     this.bindControls();
     this.drawPatchBay();
     this.init();
@@ -251,6 +254,7 @@ class App {
     };
     toggleLabel(document.getElementById("wet-dry-slider"), synth); // loop-only
     toggleLabel(this.rootSlider, !synth); // synth-only
+    toggleLabel(this.moodSelect, !synth);
     toggleLabel(this.reverbSlider, !synth);
     toggleLabel(this.delaySlider, !synth);
     toggleLabel(this.transposeSlider, !synth);
@@ -269,6 +273,7 @@ class App {
     this.scheduler = new Scheduler(this.synthEngine, { seed: 2130 });
     this.scheduler.start();
     if (this.rootSlider) this.scheduler.setRoot(parseFloat(this.rootSlider.value));
+    if (this.moodSelect) this.scheduler.setMood(this.moodSelect.value);
     if (this.reverbSlider) this.synthEngine.setReverb(parseFloat(this.reverbSlider.value));
     if (this.delaySlider) this.synthEngine.setDelay(parseFloat(this.delaySlider.value));
     if (this.transposeSlider) this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value));
@@ -368,27 +373,38 @@ class App {
     });
     if (this.rootSlider) {
       this.rootSlider.addEventListener("input", (e) => {
+        this.syncKnobControl(e.target);
         if (this.mode !== "synth" || !this.scheduler) return;
         this.scheduler.setRoot(parseFloat(e.target.value));
       });
     }
+    if (this.moodSelect) {
+      this.moodSelect.addEventListener("change", (e) => {
+        if (this.mode !== "synth" || !this.scheduler) return;
+        this.scheduler?.setMood(e.target.value);
+      });
+    }
     if (this.reverbSlider) {
       this.reverbSlider.addEventListener("input", (e) => {
+        this.syncKnobControl(e.target);
         if (this.mode !== "synth" || !this.synthEngine) return;
         this.synthEngine.setReverb(parseFloat(e.target.value));
       });
     }
     if (this.delaySlider) {
       this.delaySlider.addEventListener("input", (e) => {
+        this.syncKnobControl(e.target);
         if (this.mode !== "synth" || !this.synthEngine) return;
         this.synthEngine.setDelay(parseFloat(e.target.value));
       });
     }
     if (this.transposeSlider) {
       this.transposeSlider.addEventListener("input", (e) => {
+        this.syncKnobControl(e.target);
         this.synthEngine?.setTranspose(parseFloat(e.target.value));
       });
     }
+    document.getElementById("wet-dry-slider").addEventListener("input", (e) => this.syncKnobControl(e.target));
     document.getElementById("load-loop-button").addEventListener("click", () => {
       document.getElementById("load-loop-file").click();
     });
@@ -818,8 +834,29 @@ class App {
   }
 
   outputCellLabel(row, col) {
-    if (this.mode !== "synth") return VARIANT_COL_LABELS[col];
-    return SYNTH_SOURCE_INSTRUMENTS[row]?.[col] ?? "";
+    if (this.mode === "synth") return MACRO_COLS[col] ?? "";
+    return VARIANT_COL_LABELS[col];
+  }
+
+  syncKnobControl(input) {
+    const min = parseFloat(input.min || "0");
+    const max = parseFloat(input.max || "1");
+    const value = parseFloat(input.value || "0");
+    const norm = max === min ? 0 : Math.min(1, Math.max(0, (value - min) / (max - min)));
+    const angle = -135 + norm * 270;
+    const control = input.closest(".knob-control");
+    if (!control) return;
+    control.style.setProperty("--knob-angle", `${angle}deg`);
+    control.style.setProperty("--knob-fill", `${norm * 100}%`);
+    const output = control.querySelector("output");
+    if (!output) return;
+    if (input.id === "root-slider") {
+      output.textContent = `MIDI ${Math.round(value)}`;
+    } else if (input.id === "transpose-slider") {
+      output.textContent = `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
+    } else {
+      output.textContent = `${Math.round(norm * 100)}%`;
+    }
   }
 
   drawPatchBay() {
