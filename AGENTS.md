@@ -4,11 +4,11 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab now uses a Loop/webapp-style drag-cable patch bay (synth_tab.py): two 5x5 jack grids (sources additive/granular/resonant/noise/texture, transforms delay/spectral/pitch/grainfx/spatial), cable a source jack to a transform jack to create a SoundscapeEngine voice (release off-grid = source-only), each colored by the captured scan color. Synth audio runs on a producer thread with blocking write() at latency="high" (SynthAudioEngine) and a lightweight tk-canvas waveform, fixing the callback/GIL glitching; resonant sources skip their per-sample loop when rung out. Loop tab untouched; web app + firmware/TD still WIP.
-- **Last session:** 2026-07-23 — redesigned the Synth tab to the drag-cable patch bay and fixed synth clipping/CPU headroom per docs/superpowers/plans/2026-07-23-synth-patchbay-and-headroom.md (spec: docs/superpowers/specs/2026-07-23-synth-patchbay-and-headroom-design.md).
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab now mirrors the web-app workflow: Play/Pause, Send scanned color+BPM into a single-use Sources list, click a source then a generator jack to create a source-only voice, and cable a placed generator jack to a modifier jack (off-grid clears the modifier). SoundscapeEngine has an evolving-mix VoiceConductor for slow per-voice swells/foreground rotation, plus a live gliding harmonic-root slider that re-pitches active tonal voices without clearing patches. Synth audio still runs on a producer thread with blocking write() at latency="high" and a lightweight tk-canvas waveform. Loop tab untouched; web app + firmware/TD still WIP.
+- **Last session:** 2026-07-23 — implemented synth web-app parity + evolving mix + live root slider per docs/superpowers/plans/2026-07-23-synth-webapp-parity-and-evolving-mix.md (spec: docs/superpowers/specs/2026-07-23-synth-webapp-parity-and-evolving-mix-design.md).
 - **Next up:**
-  - Tune by ear in the Synth tab: source/transform preset feel, color->timbre mapping, register/gain, root-note range.
-  - Consider cable-click selection/removal and persisting patches.
+  - Tune by ear in the Synth tab: source/transform preset feel, evolving-mix depth/rate, color->timbre mapping, register/gain, root-note range.
+  - Consider cable-click selection/removal, source-row drag-to-jack assignment, and persisting patches.
   - Wire hardware finger-scan input into the Synth tab (spec Phase 3).
   - Document the firmware serial message shape (base64 JPEG framing).
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
