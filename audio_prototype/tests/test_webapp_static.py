@@ -7,6 +7,37 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+CLICKBATH_SAMPLE_FILES = [
+    "casio_48.wav",
+    "casio_60.wav",
+    "casio_72.wav",
+    "casio_84.wav",
+    "clarinet_60.wav",
+    "clarinet_72.wav",
+    "clarinet_84.wav",
+    "flute_60.wav",
+    "flute_72.wav",
+    "flute_84.wav",
+    "guitar_48.wav",
+    "guitar_60.wav",
+    "guitar_72.wav",
+    "piano_48.wav",
+    "piano_60.wav",
+    "piano_72.wav",
+    "piano_84.wav",
+    "strings_48.wav",
+    "strings_60.wav",
+    "strings_72.wav",
+    "strings_84.wav",
+    "tapebell_48.wav",
+    "tapebell_60.wav",
+    "tapebell_72.wav",
+    "tapebell_84.wav",
+    "tapeguitar_36.wav",
+    "tapeguitar_48.wav",
+    "tapeguitar_60.wav",
+]
+
 
 def test_loop_mode_cannot_post_play_before_loop_is_loaded():
     main_js = (ROOT / "webapp" / "main.js").read_text()
@@ -157,6 +188,21 @@ def test_deployed_assets_are_cache_busted_from_index_to_worker():
     assert "const APP_ASSET_VERSION = Date.now().toString();" in main_js
     assert 'new Worker(`worker.js?v=${APP_ASSET_VERSION}`)' in main_js
     assert 'addModule(`worklet.js?v=${APP_ASSET_VERSION}`)' in main_js
+
+
+def test_clickbath_samples_are_tracked_for_github_pages_deploy():
+    tracked = set(
+        subprocess.check_output(
+            ["git", "ls-files", "webapp/audio/clickbath/*.wav"],
+            cwd=ROOT,
+            text=True,
+        ).splitlines()
+    )
+
+    for name in CLICKBATH_SAMPLE_FILES:
+        path = ROOT / "webapp" / "audio" / "clickbath" / name
+        assert path.exists(), name
+        assert f"webapp/audio/clickbath/{name}" in tracked
 
 
 def test_pyodide_worker_cache_busts_python_sources():
