@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import time
 
 from synth_audio_engine import SynthAudioEngine
 
@@ -77,83 +78,100 @@ def test_render_exception_yields_silent_block(monkeypatch):
     np.testing.assert_allclose(block, np.zeros(512))
 
 
-def _fake_stream_factory(events):
-    class FakeStream:
-        def __init__(self, **kwargs):
-            events.append(("init", kwargs["channels"]))
-            self.callback = kwargs["callback"]
+class _FakeStream:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.writes = 0
+        self.started = False
+        self.closed = False
+        self.last = None
 
-        def start(self):
-            events.append(("start",))
+    def start(self):
+        self.started = True
 
-        def stop(self):
-            events.append(("stop",))
+    def stop(self):
+        self.started = False
 
-        def close(self):
-            events.append(("close",))
+    def close(self):
+        self.closed = True
 
-    return FakeStream
+    def write(self, block):
+        self.writes += 1
+        self.last = np.array(block)
+        time.sleep(0.001)
 
 
-def test_starts_paused_and_opens_no_stream(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
-    )
+def _install_fake_stream(monkeypatch):
+    created = {}
+
+    def factory(**kwargs):
+        stream = _FakeStream(**kwargs)
+        created["stream"] = stream
+        return stream
+
+    monkeypatch.setattr("synth_audio_engine.sd.OutputStream", factory)
+    return created
+
+
+def test_start_while_paused_opens_no_stream(monkeypatch):
+    created = _install_fake_stream(monkeypatch)
     eng = SynthAudioEngine(seed=1)
+    eng.start()
     assert eng.paused is True
-    eng.start()  # start() while paused should not begin playback
-    assert ("init", 2) not in events
-    assert ("start",) not in events
+    assert "stream" not in created
+    assert eng._stream is None
 
 
-def test_resume_opens_and_starts_stream(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
-    )
-    eng = SynthAudioEngine(seed=1)
-    eng.resume()
-    assert eng.paused is False
-    assert ("init", 2) in events
-    assert events.count(("start",)) == 1
-
-
-def test_pause_stops_without_closing(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
-    )
-    eng = SynthAudioEngine(seed=1)
-    eng.resume()
-    eng.pause()
-    assert eng.paused is True
-    assert ("stop",) in events
-    assert ("close",) not in events
-
-
-def test_stop_closes_stream(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
-    )
-    eng = SynthAudioEngine(seed=1)
-    eng.resume()
-    eng.stop()
-    assert ("close",) in events
-
-
-def test_callback_fills_outdata_stereo(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
-    )
+def test_resume_opens_high_latency_stream_and_produces(monkeypatch):
+    created = _install_fake_stream(monkeypatch)
     eng = SynthAudioEngine(seed=1)
     eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2")
-    out = np.zeros((256, 2), dtype=np.float32)
-    eng._callback(out, 256, None, None)
-    assert out.shape == (256, 2)
-    np.testing.assert_array_equal(out[:, 0], out[:, 1])
+    eng.resume()
+    time.sleep(0.05)
+    eng.stop()
+    stream = created["stream"]
+    assert stream.kwargs.get("latency") == "high"
+    assert stream.kwargs.get("channels") == 2
+    assert stream.writes > 0
+    assert stream.closed is True
+    assert eng._running is False
+
+
+def test_pause_writes_silence_but_keeps_stream_open(monkeypatch):
+    created = _install_fake_stream(monkeypatch)
+    eng = SynthAudioEngine(seed=1)
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2")
+    eng.resume()
+    time.sleep(0.03)
+    eng.pause()
+    time.sleep(0.05)
+    stream = created["stream"]
+    assert eng.paused is True
+    assert stream.closed is False
+    # the most recent block written while paused is silent
+    assert float(np.max(np.abs(stream.last))) == 0.0
+    eng.stop()
+
+
+def test_stop_joins_producer_and_closes(monkeypatch):
+    created = _install_fake_stream(monkeypatch)
+    eng = SynthAudioEngine(seed=1)
+    eng.resume()
+    time.sleep(0.02)
+    eng.stop()
+    assert eng._running is False
+    assert eng._producer is None
+    assert created["stream"].closed is True
+
+
+def test_produces_stereo_blocks(monkeypatch):
+    created = _install_fake_stream(monkeypatch)
+    eng = SynthAudioEngine(seed=1)
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2")
+    eng.resume()
+    time.sleep(0.05)
+    eng.stop()
+    assert created["stream"].last.shape[1] == 2
 
 
 def test_load_sample_array_changes_texture_output():

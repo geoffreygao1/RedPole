@@ -8,6 +8,7 @@ AudioEngine: no loop, no LayerRegistry, no reverb/wet-bus -- SoundscapeEngine
 already does its own mixing and limiting."""
 
 import threading
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -20,7 +21,7 @@ VISUALIZER_BUFFER_SECONDS = 2.0
 
 
 class SynthAudioEngine:
-    def __init__(self, samplerate=44100, blocksize=1024, seed=None, root_midi=62):
+    def __init__(self, samplerate=44100, blocksize=2048, seed=None, root_midi=62):
         self.samplerate = samplerate
         self.blocksize = blocksize
         self._seed = seed
@@ -33,6 +34,8 @@ class SynthAudioEngine:
         self.visual_buffer = RingBuffer(int(samplerate * VISUALIZER_BUFFER_SECONDS))
         self._stream = None
         self._paused = True
+        self._running = False
+        self._producer = None
 
     @property
     def root_midi(self):
@@ -87,34 +90,59 @@ class SynthAudioEngine:
         return self._paused
 
     def _open_stream(self):
+        # Blocking/write mode (no callback): PortAudio pulls audio in its own
+        # C thread from a large internal buffer (latency="high"), so a GIL
+        # stall on the Tk/main thread delays the producer's next write() but
+        # does not underrun playback. This removes the callback-needs-the-GIL
+        # glitch that a matplotlib redraw could trigger.
         self._stream = sd.OutputStream(
             samplerate=self.samplerate,
             blocksize=self.blocksize,
             channels=2,
-            callback=self._callback,
+            latency="high",
         )
 
-    def _callback(self, outdata, frames, time_info, status):
-        outdata[:, :] = self.generate_stereo_block(frames)
+    def _run_producer(self):
+        silence = np.zeros((self.blocksize, 2), dtype=np.float32)
+        while self._running:
+            block = (
+                self.generate_stereo_block(self.blocksize)
+                if not self._paused
+                else silence
+            )
+            try:
+                self._stream.write(block)
+            except Exception:
+                # A closed/aborted stream during shutdown, or a transient
+                # backend error, must not kill the producer loop.
+                if not self._running:
+                    break
 
     def start(self):
+        # Mirrors the prior contract: start() while paused opens nothing.
         if not self._paused:
-            if self._stream is None:
-                self._open_stream()
-            self._stream.start()
+            self.resume()
 
     def resume(self):
         self._paused = False
         if self._stream is None:
             self._open_stream()
         self._stream.start()
+        if not self._running:
+            self._running = True
+            self._producer = threading.Thread(target=self._run_producer, daemon=True)
+            self._producer.start()
 
     def pause(self):
+        # Keep the stream + producer alive but feed silence, so playback stays
+        # glitch-free and resumes instantly.
         self._paused = True
-        if self._stream is not None:
-            self._stream.stop()
 
     def stop(self):
+        self._running = False
+        if self._producer is not None:
+            self._producer.join(timeout=1.0)
+            self._producer = None
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()

@@ -147,7 +147,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `sounddevice` (`sd.OutputStream(... latency="high")` in blocking/write mode), `threading`, `time`.
 - Produces: same public methods. `__init__` default `blocksize=2048`. `resume()` opens the stream (if needed), starts it, and launches a daemon producer thread that renders blocks and calls `stream.write()`. `pause()` sets `_paused` (producer writes silence, stream stays open). `stop()` stops the producer and closes the stream. Removes `_callback`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the existing stream-lifecycle tests in `tests/test_synth_audio_engine.py` (the ones named `_fake_stream_factory`, `test_starts_paused_and_opens_no_stream`, `test_resume_opens_and_starts_stream`, `test_pause_stops_without_closing`, `test_stop_closes_stream`, `test_callback_fills_outdata_stereo`) with the following. Keep every other test in the file unchanged.
 
@@ -251,12 +251,12 @@ def test_produces_stereo_blocks(monkeypatch):
     assert created["stream"].last.shape[1] == 2
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `py -3.11 -m pytest tests/test_synth_audio_engine.py -k "resume_opens_high_latency or pause_writes_silence or stop_joins or produces_stereo or start_while_paused" -v`
 Expected: FAIL — `AttributeError: 'SynthAudioEngine' object has no attribute '_running'` (and the fake stream has no `write` calls because the current engine is callback-based).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `synth_audio_engine.py`: add `import time` next to `import threading`. In `__init__`, change the default and add producer fields — replace the signature line and add two fields:
 
@@ -342,12 +342,12 @@ Then replace the entire `# ---------- stream lifecycle ----------` section (from
 
 Delete the old `_callback` method entirely.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `py -3.11 -m pytest tests/test_synth_audio_engine.py -v`
 Expected: PASS — the new lifecycle tests plus all retained `generate_block`/`load_sample`/`set_root_midi` tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_audio_engine.py audio_prototype/tests/test_synth_audio_engine.py
