@@ -1,6 +1,6 @@
-import { Scheduler } from "./scheduler.js";
+import { Scheduler } from "./scheduler.js?v=20260723-octave-triggers";
 import { ToneEngine } from "./tone_engine.js?v=20260723-audible-patch";
-import { TRIGGER_COLS, TRIGGER_ROWS, triggerPresetId } from "./triggers.js";
+import { TRIGGER_COLS, TRIGGER_ROWS, triggerPresetId } from "./triggers.js?v=20260723-faster-triggers";
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;

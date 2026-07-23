@@ -68,6 +68,30 @@ def test_synth_wash_controls_default_to_seventy_percent():
     assert '<input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.7" />' in index_html
 
 
+def test_synth_default_root_is_one_octave_higher():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+
+    assert '<input id="root-slider" type="range" min="36" max="60" step="0.01" value="60" />' in index_html
+    assert 'src="main.js?v=20260723-octave-triggers"' in index_html
+    assert 'from "./scheduler.js?v=20260723-octave-triggers"' in main_js
+    assert "this.rootMidi = 60;" in scheduler_js
+    assert "this.rootMidi = 48;" not in scheduler_js
+
+
+def test_synth_trigger_grid_is_more_responsive():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+    triggers_js = (ROOT / "webapp" / "triggers.js").read_text()
+
+    assert 'from "./triggers.js?v=20260723-faster-triggers"' in main_js
+    assert 'from "./triggers.js?v=20260723-faster-triggers"' in scheduler_js
+    assert "const BEATS_PER_STEP = [0.5, 1, 2, 4, 8];" in triggers_js
+    assert "const PROBABILITY = [0.25, 0.45, 0.65, 0.85, 1.0];" in triggers_js
+    assert "const BEATS_PER_STEP = [1, 2, 4, 8, 16];" not in triggers_js
+
+
 def test_synth_play_and_live_patch_creation_audition_connected_voices():
     main_js = (ROOT / "webapp" / "main.js").read_text()
     scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()

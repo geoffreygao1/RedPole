@@ -6,8 +6,8 @@
 export const TRIGGER_ROWS = ["pulse", "half-time", "bar", "long", "glacial"];
 export const TRIGGER_COLS = ["rare", "sparse", "often", "frequent", "always"];
 
-const BEATS_PER_STEP = [1, 2, 4, 8, 16]; // one entry per TRIGGER_ROWS
-const PROBABILITY = [0.15, 0.35, 0.55, 0.75, 1.0]; // one entry per TRIGGER_COLS
+const BEATS_PER_STEP = [0.5, 1, 2, 4, 8]; // one entry per TRIGGER_ROWS
+const PROBABILITY = [0.25, 0.45, 0.65, 0.85, 1.0]; // one entry per TRIGGER_COLS
 
 export const TRIGGER_PRESETS = Object.fromEntries(
   TRIGGER_ROWS.flatMap((rowLabel, row) =>

@@ -1,4 +1,4 @@
-import { TRIGGER_PRESETS } from "./triggers.js";
+import { TRIGGER_PRESETS } from "./triggers.js?v=20260723-faster-triggers";
 
 const ROOT_MIN = 36;
 const ROOT_MAX = 60;
@@ -18,7 +18,7 @@ export class Scheduler {
   constructor(engine, { Tone: tone = engine.Tone ?? globalThis.Tone } = {}) {
     this.engine = engine;
     this.Tone = tone;
-    this.rootMidi = 48;
+    this.rootMidi = 60;
     this.voices = new Map(); // voiceId -> {behavior, semitoneOffset, centsOffset, triggerId, tickOffset}
     this.tick = 0;
     this.event = null;
