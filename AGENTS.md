@@ -4,10 +4,10 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab now mirrors the web-app workflow: Play/Pause, Send scanned color+BPM into a single-use Sources list, click a source then a generator jack to create a source-only voice, and cable a placed generator jack to a modifier jack (off-grid clears the modifier). SoundscapeEngine has an evolving-mix VoiceConductor for slow per-voice swells/foreground rotation, plus a live gliding harmonic-root slider that re-pitches active tonal voices without clearing patches. Synth audio still runs on a producer thread with blocking write() at latency="high" and a lightweight tk-canvas waveform. Loop tab untouched; web app + firmware/TD still WIP.
-- **Last session:** 2026-07-23 — implemented synth web-app parity + evolving mix + live root slider per docs/superpowers/plans/2026-07-23-synth-webapp-parity-and-evolving-mix.md (spec: docs/superpowers/specs/2026-07-23-synth-webapp-parity-and-evolving-mix-design.md).
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab mirrors the web-app workflow and now has a clickbath-style soundbath source grid: granular, slowed resonant, plus multisample instruments as pluck/pad/bloom rows. Local gitignored `audio_prototype/assets/clickbath/*.wav` samples feed piano/guitar/casio/strings/flute/clarinet/tape bell/tape guitar voices when present; absent assets render silence for fresh clones/tests. SoundscapeEngine keeps the evolving-mix VoiceConductor and live gliding harmonic-root slider, and now runs the mono mix through a global reverb+delay wash with Synth tab sliders. Synth audio still runs on a producer thread with blocking write() at latency="high" and a lightweight tk-canvas waveform. Loop tab untouched; web app + firmware/TD still WIP.
+- **Last session:** 2026-07-23 — implemented clickbath soundbath desktop synth per docs/superpowers/plans/2026-07-23-clickbath-soundbath-desktop.md (spec: docs/superpowers/specs/2026-07-23-clickbath-soundbath-desktop-design.md).
 - **Next up:**
-  - Tune by ear in the Synth tab: source/transform preset feel, evolving-mix depth/rate, color->timbre mapping, register/gain, root-note range.
+  - Tune by ear in the Synth tab: instrument source preset feel, wash depth/rate, evolving-mix depth/rate, color->timbre mapping, register/gain, root-note range.
   - Consider cable-click selection/removal, source-row drag-to-jack assignment, and persisting patches.
   - Wire hardware finger-scan input into the Synth tab (spec Phase 3).
   - Document the firmware serial message shape (base64 JPEG framing).
