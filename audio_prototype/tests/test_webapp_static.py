@@ -75,6 +75,16 @@ def test_synth_mode_routes_patch_cables_to_macro_grid():
     assert 'this.scheduler?.setVoiceMacro(sourceId, macroId);' in main_js
 
 
+def test_synth_mode_has_global_transpose_control():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert 'id="transpose-slider"' in index_html
+    assert 'this.transposeSlider = document.getElementById("transpose-slider");' in main_js
+    assert 'this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value))' in main_js
+    assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 
@@ -142,7 +152,7 @@ def test_sources_are_left_of_patch_bay_and_drag_routed_explicitly():
     assert 'source.x = position.x;' in main_js
     assert 'source.y = position.y;' in main_js
     assert "assignSourceToOutput" in main_js
-    assert "routeSourceToEffect" in main_js
+    assert "routeSourceToMacro" in main_js
     assert "onSourceListDragStart" in main_js
     assert "onSourceListClick" in main_js
     assert "selectedSourceId" in main_js
@@ -171,7 +181,7 @@ def test_sources_are_left_of_patch_bay_and_drag_routed_explicitly():
 
     assign_body = main_js[
         main_js.index("assignSourceToOutput(sourceId, slot)") :
-        main_js.index("routeSourceToEffect(sourceId, cell)")
+        main_js.index("routeSourceToMacro(sourceId, cell)")
     ]
     assert 'type: "connect_source"' not in assign_body
 
