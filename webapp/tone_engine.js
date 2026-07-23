@@ -82,7 +82,7 @@ export class ToneEngine {
         urls[`${instrument}_${note}`] = file;
       }
     }
-    this.buffers = new this.Tone.Buffers(urls, { baseUrl: CLICKBATH_BASE_URL });
+    this.buffers = new this.Tone.Buffers({ urls, baseUrl: CLICKBATH_BASE_URL });
     await this.Tone.loaded();
   }
 

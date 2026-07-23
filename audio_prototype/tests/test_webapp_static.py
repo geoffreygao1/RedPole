@@ -85,6 +85,13 @@ def test_synth_mode_has_global_transpose_control():
     assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
 
 
+def test_tone_buffers_uses_clickbath_base_url_for_sample_loading():
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
+
+    assert "new this.Tone.Buffers({ urls, baseUrl: CLICKBATH_BASE_URL })" in tone_engine_js
+    assert "new this.Tone.Buffers(urls, { baseUrl: CLICKBATH_BASE_URL })" not in tone_engine_js
+
+
 def test_mode_switch_pauses_loop_and_ignores_stale_source_replies():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
