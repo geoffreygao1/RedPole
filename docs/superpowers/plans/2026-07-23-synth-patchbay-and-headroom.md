@@ -40,7 +40,7 @@
 **Interfaces:**
 - Consumes/produces: unchanged public signature `render(vid, assignment, bpm, frames, preset) -> np.ndarray`. Behavior change: blocks with no pulse and fully-decayed state (`max(|y1|,|y2|) < 1e-6`) return exact zeros without running the per-sample loop.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_soundscape_sources.py
@@ -79,12 +79,12 @@ def test_resonant_ring_is_not_prematurely_zeroed():
     assert float(np.max(np.abs(next_block))) > 1e-6
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `py -3.11 -m pytest tests/test_soundscape_sources.py -k resonant_silent -v`
 Expected: FAIL — `test_resonant_silent_blocks_are_exact_zero_between_pulses` fails because the current loop returns tiny non-zero values (never exactly `0.0`) in the rung-out gaps.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `soundscape_sources.py`, inside `ResonantPulseSource.render`, locate the block that currently reads:
 
@@ -121,12 +121,12 @@ and insert the early-out **between** the `next_pulse = voice["next_pulse"]` line
 
 Leave the rest of the method (the loop body, state write-back, and peak normalization) exactly as-is.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `py -3.11 -m pytest tests/test_soundscape_sources.py -v`
 Expected: PASS — the two new tests plus every existing `test_soundscape_sources` test (audible/bounded/deterministic/voice-dropped) unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/soundscape_sources.py audio_prototype/tests/test_soundscape_sources.py

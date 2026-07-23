@@ -127,6 +127,39 @@ def test_resonant_pulse_voice_dropped_on_sync():
     src.sync([])
     assert 1 not in src._voices
 
+
+def test_resonant_silent_blocks_are_exact_zero_between_pulses():
+    src = ResonantPulseSource(44100, seed=3)
+    assignment = _assignment()
+    # slow BPM -> long gaps between pulses; render enough blocks to pass a ring
+    saw_pulse_energy = False
+    saw_exact_zero_block = False
+    for _ in range(400):
+        block = src.render(1, assignment, 40.0, 1024, RESONANT_PRESETS[0])
+        peak = float(np.max(np.abs(block)))
+        if peak > 1e-3:
+            saw_pulse_energy = True
+        if saw_pulse_energy and peak == 0.0:
+            saw_exact_zero_block = True
+    assert saw_pulse_energy       # pulses still fire and ring
+    assert saw_exact_zero_block   # rung-out gaps are skipped to exact zero
+
+
+def test_resonant_ring_is_not_prematurely_zeroed():
+    src = ResonantPulseSource(44100, seed=3)
+    assignment = _assignment()
+    # the block right after the first pulse must be non-zero (ring not skipped)
+    first_pulse_block = None
+    for _ in range(200):
+        block = src.render(1, assignment, 40.0, 1024, RESONANT_PRESETS[0])
+        if float(np.max(np.abs(block))) > 1e-3:
+            first_pulse_block = block
+            break
+    assert first_pulse_block is not None
+    next_block = src.render(1, assignment, 40.0, 1024, RESONANT_PRESETS[0])
+    # immediately after a pulse the resonator is still ringing well above 1e-6
+    assert float(np.max(np.abs(next_block))) > 1e-6
+
 from soundscape_sources import NOISE_PRESETS, FilteredNoiseSource
 
 

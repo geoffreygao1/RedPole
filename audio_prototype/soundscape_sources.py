@@ -214,6 +214,17 @@ class ResonantPulseSource:
         y1, y2 = voice["y1"], voice["y2"]
         rng = voice["rng"]
         next_pulse = voice["next_pulse"]
+        # Silent early-out: between the sparse pulses the resonators ring out
+        # within tens of ms and then sit at (numerically) zero for hundreds of
+        # ms. When no pulse fires this block and the state has fully decayed,
+        # skip the per-sample loop -- the samples it would produce are already
+        # below 1e-6, so returning exact zeros is behaviour-preserving.
+        rung_out = max(
+            float(np.max(np.abs(y1))), float(np.max(np.abs(y2)))
+        ) < 1e-6
+        if next_pulse >= frames and rung_out:
+            voice["next_pulse"] = next_pulse - frames
+            return out
         for i in range(frames):
             excite = 0.0
             if next_pulse <= 0:
