@@ -139,7 +139,9 @@ def test_effect_row_labels_are_drawn_on_right_side_of_effect_matrix():
         main_js.index("for (const [, source] of this.sources)", start)
     ]
     assert "ctx.textAlign = \"left\";" in effects_loop
+    assert 'ctx.font = "9px sans-serif";' in effects_loop
     assert "PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10" in effects_loop
+    assert "PATCH_GRID_Y + row * PATCH_CELL + 14" in effects_loop
     assert "PATCH_GRID_X - 12" not in effects_loop
 
 

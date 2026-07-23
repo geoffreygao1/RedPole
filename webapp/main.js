@@ -913,9 +913,9 @@ class App {
 
     for (let row = 0; row < PATCH_GRID_ROWS; row++) {
       ctx.fillStyle = "#d5d5d5";
-      ctx.font = "12px sans-serif";
+      ctx.font = "9px sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(rowLabels[row], PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10, PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2);
+      ctx.fillText(rowLabels[row], PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10, PATCH_GRID_Y + row * PATCH_CELL + 14);
       ctx.textAlign = "left";
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
