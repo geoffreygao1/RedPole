@@ -205,7 +205,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `.generate_stereo_block(frames) -> np.ndarray(float32, shape (frames, 2))`.
   - `.visual_buffer` (`RingBuffer`), `.root_midi` (int), `.engine` (`SoundscapeEngine`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_synth_audio_engine.py
@@ -287,12 +287,12 @@ def test_render_exception_yields_silent_block(monkeypatch):
     np.testing.assert_allclose(block, np.zeros(512))
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'synth_audio_engine'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/synth_audio_engine.py
@@ -377,12 +377,12 @@ class SynthAudioEngine:
         return np.column_stack([mono, mono]).astype(np.float32)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -v`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_audio_engine.py audio_prototype/tests/test_synth_audio_engine.py
