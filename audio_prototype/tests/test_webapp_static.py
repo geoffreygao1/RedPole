@@ -85,6 +85,25 @@ def test_synth_mode_has_global_transpose_control():
     assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
 
 
+def test_mode_switch_pauses_loop_and_ignores_stale_source_replies():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    set_mode_body = main_js[
+        main_js.index("async setMode(mode)") :
+        main_js.index("async onTogglePlay()")
+    ]
+    assert 'this.worker?.postMessage({ type: "pause" });' in set_mode_body
+    assert 'if (this.audioContext?.state === "running") await this.audioContext.suspend();' in set_mode_body
+    assert 'this.playPauseButton.textContent = "Play";' in set_mode_body
+
+    finish_pending_body = main_js[
+        main_js.index("finishPendingSource(sourceId)") :
+        main_js.index("nextAvailableOutputSlot()")
+    ]
+    assert "const pending = this._pendingSources.shift();" in finish_pending_body
+    assert "if (!pending) return;" in finish_pending_body
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 

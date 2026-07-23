@@ -408,6 +408,10 @@ class App {
       }
       this.synthEngine.pause();
       this.playPauseButton.textContent = "Play";
+    } else if (this.mode === "loop") {
+      this.worker?.postMessage({ type: "pause" });
+      if (this.audioContext?.state === "running") await this.audioContext.suspend();
+      this.playPauseButton.textContent = "Play";
     }
     this.mode = mode;
     if (mode === "synth") {
@@ -537,6 +541,7 @@ class App {
     // The worker replies to add_source requests strictly in the order it
     // received them, so the oldest queued entry always matches this reply.
     const pending = this._pendingSources.shift();
+    if (!pending) return;
     this.sources.set(sourceId, {
       x: null,
       y: null,
