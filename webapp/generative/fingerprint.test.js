@@ -24,3 +24,21 @@ test("different BPM changes motion but not harmonic lane for same color", () => 
   assert.equal(slow.harmonicBias, fast.harmonicBias);
   assert.notEqual(slow.motionBias, fast.motionBias);
 });
+
+test("deriveFingerprint keeps max hue in the last harmonic lane", () => {
+  assert.equal(deriveFingerprint({ hue: 1, sat: 0.7, val: 0.95, bpm: 70 }).harmonicBias, 5);
+  assert.equal(deriveFingerprint({ hue: 2, sat: 0.7, val: 0.95, bpm: 70 }).harmonicBias, 5);
+});
+
+test("deriveFingerprint defaults non-finite and omitted scan fields", () => {
+  const fp = deriveFingerprint({
+    hue: Number.NaN,
+    sat: Number.POSITIVE_INFINITY,
+    val: Number.NEGATIVE_INFINITY,
+  });
+  assert.equal(fp.hue, 0);
+  assert.equal(fp.sat, 0.68);
+  assert.equal(fp.val, 0.94);
+  assert.equal(fp.bpm, 70);
+  assert.deepEqual(deriveFingerprint(), fp);
+});

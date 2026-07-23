@@ -6,7 +6,7 @@ function hashFloat(value, scale) {
   return Math.round(value * scale) | 0;
 }
 
-export function deriveFingerprint({ hue, sat, val, bpm }) {
+export function deriveFingerprint({ hue, sat, val, bpm } = {}) {
   const h = clamp(Number.isFinite(hue) ? hue : 0, 0, 1);
   const s = clamp(Number.isFinite(sat) ? sat : 0.68, 0, 1);
   const v = clamp(Number.isFinite(val) ? val : 0.94, 0, 1);
@@ -23,7 +23,7 @@ export function deriveFingerprint({ hue, sat, val, bpm }) {
     val: v,
     bpm: b,
     seed: seed >>> 0,
-    harmonicBias: Math.floor(h * 6),
+    harmonicBias: Math.min(5, Math.floor(h * 6)),
     registerBias: clamp(0.25 + h * 0.65 + (v - 0.5) * 0.2, 0, 1),
     brightnessBias: clamp(0.2 + v * 0.55 + s * 0.25, 0, 1),
     motionBias: clamp(0.15 + bpmNorm * 0.75, 0, 1),
