@@ -53,6 +53,9 @@
       <div class="section-header">
         <h2>Patch Bay</h2>
         <label class="patch-control">Wet/Dry <input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></label>
+        <label class="patch-control">Root <input id="root-slider" type="range" min="36" max="60" step="0.01" value="48" /></label>
+        <label class="patch-control">Reverb <input id="reverb-slider" type="range" min="0" max="1.5" step="0.01" value="0.45" /></label>
+        <label class="patch-control">Delay <input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.18" /></label>
       </div>
       <canvas id="patch-canvas" width="800" height="380"></canvas>
     </section>
@@ -63,6 +66,7 @@
     </section>
   </div>
 
-  <script src="main.js?v=20260722-cache2"></script>
+  <script src="vendor/tone.js?v=14.7.77"></script>
+  <script type="module" src="main.js?v=20260723-tonejs-mvp"></script>
 </body>
 </html>

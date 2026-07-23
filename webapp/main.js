@@ -1,3 +1,7 @@
+import { MODIFIER_COLS, MODIFIER_ROWS } from "./modifiers.js";
+import { Scheduler } from "./scheduler.js";
+import { ToneEngine } from "./tone_engine.js";
+
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
 const PATCH_CELL = 58;
@@ -12,7 +16,13 @@ const PATCH_SOURCE_LIMIT = 25;
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
 const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
-const SYNTH_ROW_LABELS = ["stretch", "delay", "reverb", "stereo", "shape"];
+const SYNTH_ROW_LABELS = MODIFIER_ROWS;
+const SYNTH_SOURCE_ROWS = ["pluck", "pad", "bloom"];
+const SYNTH_SOURCE_INSTRUMENTS = [
+  ["piano", "guitar", "tapeguitar", "tapebell", "casio"],
+  ["strings", "flute", "clarinet", "casio", "piano"],
+  ["strings", "flute", "clarinet", "guitar", "tapebell"],
+];
 const TAPE_ROW_INDEX = PATCH_ROW_ENGINES.indexOf("tape");
 const VARIANT_COL_LABELS = ["I", "II", "III", "IV", "V"];
 
@@ -146,6 +156,10 @@ class App {
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
     this.mode = "loop";
     this.loopLoaded = false;
+    this.nextSynthSourceId = 1;
+    this.synthEngine = null;
+    this.scheduler = null;
+    this.synthReady = false;
 
     this.statusEl = document.getElementById("status");
     this.appEl = document.getElementById("app");
@@ -162,6 +176,9 @@ class App {
     this.loadLoopButton = document.getElementById("load-loop-button");
     this.loadSamplesButton = document.getElementById("load-samples-button");
     this.loadSamplesFile = document.getElementById("load-samples-file");
+    this.rootSlider = document.getElementById("root-slider");
+    this.reverbSlider = document.getElementById("reverb-slider");
+    this.delaySlider = document.getElementById("delay-slider");
 
     this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
     this.setupAudio();
@@ -193,6 +210,21 @@ class App {
       { type: "init", sampleRate: this.audioContext.sampleRate, audioPort: channel.port1 },
       [channel.port1]
     );
+  }
+
+  async ensureSynthEngine() {
+    if (this.synthReady) return;
+    this.statusEl.textContent = "Loading Tone.js synth...";
+    this.statusEl.classList.remove("hidden");
+    this.synthEngine = new ToneEngine();
+    await this.synthEngine.init();
+    this.scheduler = new Scheduler(this.synthEngine, { seed: 2130 });
+    this.scheduler.start();
+    if (this.rootSlider) this.scheduler.setRoot(parseFloat(this.rootSlider.value));
+    if (this.reverbSlider) this.synthEngine.setReverb(parseFloat(this.reverbSlider.value));
+    if (this.delaySlider) this.synthEngine.setDelay(parseFloat(this.delaySlider.value));
+    this.synthReady = true;
+    this.statusEl.classList.add("hidden");
   }
 
   onWorkerMessage(msg) {
@@ -278,12 +310,31 @@ class App {
     document.getElementById("send-button").addEventListener("click", () => this.onSend());
     document.getElementById("random-button").addEventListener("click", () => this.onRandom());
     document.getElementById("play-pause-button").addEventListener("click", () => this.onTogglePlay());
-    this.modeSwitchButton.addEventListener("click", () => {
-      this.setMode(this.mode === "loop" ? "synth" : "loop");
+    this.modeSwitchButton.addEventListener("click", async () => {
+      await this.setMode(this.mode === "loop" ? "synth" : "loop");
     });
     document.getElementById("wet-dry-slider").addEventListener("input", (e) => {
+      if (this.mode === "synth") return;
       this.worker.postMessage({ type: "set_wet_dry", value: parseFloat(e.target.value) });
     });
+    if (this.rootSlider) {
+      this.rootSlider.addEventListener("input", (e) => {
+        if (this.mode !== "synth" || !this.scheduler) return;
+        this.scheduler.setRoot(parseFloat(e.target.value));
+      });
+    }
+    if (this.reverbSlider) {
+      this.reverbSlider.addEventListener("input", (e) => {
+        if (this.mode !== "synth" || !this.synthEngine) return;
+        this.synthEngine.setReverb(parseFloat(e.target.value));
+      });
+    }
+    if (this.delaySlider) {
+      this.delaySlider.addEventListener("input", (e) => {
+        if (this.mode !== "synth" || !this.synthEngine) return;
+        this.synthEngine.setDelay(parseFloat(e.target.value));
+      });
+    }
     document.getElementById("load-loop-button").addEventListener("click", () => {
       document.getElementById("load-loop-file").click();
     });
@@ -300,10 +351,19 @@ class App {
     this.patchCanvas.addEventListener("drop", (e) => this.onPatchDrop(e));
   }
 
-  setMode(mode) {
+  async setMode(mode) {
     if (mode === this.mode) return;
+    if (this.mode === "synth" && this.synthEngine) {
+      for (const sourceId of this.sources.keys()) {
+        this.scheduler?.removeVoice(sourceId);
+        this.synthEngine.disposeVoice(sourceId);
+      }
+      this.synthEngine.pause();
+      this.playPauseButton.textContent = "Play";
+    }
     this.mode = mode;
     this.worker.postMessage({ type: "set_mode", mode });
+    if (mode === "synth") await this.ensureSynthEngine();
 
     // Mirror the engine's server-side reset: clear all client patch state.
     this.sources.clear();
@@ -315,7 +375,7 @@ class App {
     // Loop mode uses a single loaded loop; synth mode uses local sample-bank
     // sources when provided, with generated tones only as a fallback.
     this.loadLoopButton.classList.toggle("hidden", mode === "synth");
-    this.loadSamplesButton.classList.toggle("hidden", mode !== "synth");
+    this.loadSamplesButton.classList.toggle("hidden", true);
     this.modeSwitchButton.classList.toggle("synth", mode === "synth");
     this.modeSwitchButton.setAttribute("aria-pressed", mode === "synth" ? "true" : "false");
 
@@ -323,8 +383,19 @@ class App {
     this.renderSourceList();
   }
 
-  onTogglePlay() {
-    if (this.mode === "loop" && !this.loopLoaded) {
+  async onTogglePlay() {
+    if (this.mode === "synth") {
+      await this.ensureSynthEngine();
+      if (this.synthEngine.paused) {
+        await this.synthEngine.resume();
+        this.playPauseButton.textContent = "Pause";
+      } else {
+        this.synthEngine.pause();
+        this.playPauseButton.textContent = "Play";
+      }
+      return;
+    }
+    if (!this.loopLoaded) {
       this.statusEl.textContent = "Load a loop or switch to Synth before playing.";
       this.statusEl.classList.remove("hidden");
       return;
@@ -405,6 +476,11 @@ class App {
     const { hue, sat, val } = this.currentHsv;
     const color = hsvToCssColor(this.currentHsv);
     this._pendingSources.push({ hue, sat, val, bpm, color });
+    if (this.mode === "synth") {
+      const sourceId = this.nextSynthSourceId++;
+      this.finishPendingSource(sourceId);
+      return;
+    }
     this.worker.postMessage({ type: "add_source", hue, sat, val, bpm });
   }
 
@@ -417,9 +493,14 @@ class App {
       y: null,
       color: pending.color,
       bpm: pending.bpm,
+      hue: pending.hue,
+      sat: pending.sat,
+      val: pending.val,
       slot: null,
       row: null,
       col: null,
+      behavior: null,
+      instrument: null,
     });
     if (this.autoAssignSourcesEl.checked) {
       const slot = this.nextAvailableOutputSlot();
@@ -432,9 +513,25 @@ class App {
   nextAvailableOutputSlot() {
     const used = new Set(Array.from(this.sources.values(), (source) => source.slot));
     for (let slot = 0; slot < PATCH_SOURCE_LIMIT; slot++) {
-      if (!used.has(slot)) return slot;
+      if (!used.has(slot) && this.outputSlotEnabled(slot)) return slot;
     }
     return null;
+  }
+
+  outputSlotEnabled(slot) {
+    if (this.mode !== "synth") return true;
+    const row = Math.floor(slot / PATCH_GRID_COLS);
+    const col = slot % PATCH_GRID_COLS;
+    return Boolean(SYNTH_SOURCE_INSTRUMENTS[row]?.[col]);
+  }
+
+  synthSourceForSlot(slot) {
+    const row = Math.floor(slot / PATCH_GRID_COLS);
+    const col = slot % PATCH_GRID_COLS;
+    const behavior = SYNTH_SOURCE_ROWS[row];
+    const instrument = SYNTH_SOURCE_INSTRUMENTS[row]?.[col];
+    if (!behavior || !instrument) return null;
+    return { behavior, instrument };
   }
 
   cellAt(x, y) {
@@ -494,12 +591,18 @@ class App {
         this.assignSourceToOutput(this.dragSourceId, slot);
       }
     } else if (cell === null) {
-      this.worker.postMessage({ type: "disconnect_source", sourceId: this.dragSourceId });
-      source.x = null;
-      source.y = null;
-      source.slot = null;
-      source.row = null;
-      source.col = null;
+      if (this.mode === "synth") {
+        this.synthEngine?.setVoiceModifier(this.dragSourceId, null);
+        source.row = null;
+        source.col = null;
+      } else {
+        this.worker.postMessage({ type: "disconnect_source", sourceId: this.dragSourceId });
+        source.x = null;
+        source.y = null;
+        source.slot = null;
+        source.row = null;
+        source.col = null;
+      }
     } else {
       this.routeSourceToEffect(this.dragSourceId, cell);
     }
@@ -514,7 +617,8 @@ class App {
     const rect = this.patchCanvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    if (this.outputSlotAt(x, y) === null) return;
+    const slot = this.outputSlotAt(x, y);
+    if (slot === null || !this.outputSlotEnabled(slot)) return;
     event.preventDefault();
   }
 
@@ -525,7 +629,7 @@ class App {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const slot = this.outputSlotAt(x, y);
-    if (slot === null) return;
+    if (slot === null || !this.outputSlotEnabled(slot)) return;
     event.preventDefault();
     this.assignSourceToOutput(sourceId, slot);
     this.dragSourceId = null;
@@ -547,10 +651,15 @@ class App {
 
   assignSourceToOutput(sourceId, slot) {
     const source = this.sources.get(sourceId);
-    if (!source) return;
+    if (!source || !this.outputSlotEnabled(slot)) return;
     for (const [otherId, other] of this.sources) {
       if (otherId !== sourceId && other.slot === slot) {
-        this.worker.postMessage({ type: "disconnect_source", sourceId: otherId });
+        if (this.mode === "synth") {
+          this.scheduler?.removeVoice(otherId);
+          this.synthEngine?.disposeVoice(otherId);
+        } else {
+          this.worker.postMessage({ type: "disconnect_source", sourceId: otherId });
+        }
         other.x = null;
         other.y = null;
         other.slot = null;
@@ -562,15 +671,43 @@ class App {
     const row = Math.floor(slot / PATCH_GRID_COLS);
     const col = slot % PATCH_GRID_COLS;
     const position = outputSlotPosition(slot);
+    const previousModifier =
+      this.mode === "synth" && source.row !== null && source.col !== null
+        ? this.modifierPresetId(source.row, source.col)
+        : null;
     source.slot = slot;
     source.x = position.x;
     source.y = position.y;
     if (source.row !== null || source.col !== null) {
-      this.worker.postMessage({ type: "disconnect_source", sourceId });
+      if (this.mode !== "synth") {
+        this.worker.postMessage({ type: "disconnect_source", sourceId });
+      }
     }
     source.row = null;
     source.col = null;
+    if (this.mode === "synth") {
+      const config = this.synthSourceForSlot(slot);
+      this.scheduler?.removeVoice(sourceId);
+      this.synthEngine?.disposeVoice(sourceId);
+      source.behavior = config.behavior;
+      source.instrument = config.instrument;
+      this.synthEngine?.createVoice(sourceId, {
+        instrument: config.instrument,
+        behavior: config.behavior,
+        hue: source.hue,
+        sat: source.sat,
+        val: source.val,
+      });
+      this.scheduler?.addVoice(sourceId, { behavior: config.behavior, bpm: source.bpm });
+      if (previousModifier) {
+        this.synthEngine?.setVoiceModifier(sourceId, previousModifier);
+      }
+    }
     this.selectedSourceId = null;
+  }
+
+  modifierPresetId(row, col) {
+    return `${MODIFIER_ROWS[row]}_${col + 1}`;
   }
 
   routeSourceToEffect(sourceId, cell) {
@@ -578,6 +715,12 @@ class App {
     if (!source || source.slot === null) return;
     const row = cell.row;
     const col = cell.col;
+    if (this.mode === "synth") {
+      this.synthEngine?.setVoiceModifier(sourceId, this.modifierPresetId(row, col));
+      source.row = row;
+      source.col = col;
+      return;
+    }
     const engine =
       this.mode === "loop" && row === TAPE_ROW_INDEX && col === 4
         ? "reverb"
@@ -596,6 +739,15 @@ class App {
 
   rowLabels() {
     return this.mode === "synth" ? SYNTH_ROW_LABELS : LOOP_ROW_LABELS;
+  }
+
+  outputRowLabel(row) {
+    return this.mode === "synth" ? (SYNTH_SOURCE_ROWS[row] ?? "") : VARIANT_COL_LABELS[row];
+  }
+
+  outputCellLabel(row, col) {
+    if (this.mode !== "synth") return VARIANT_COL_LABELS[col];
+    return SYNTH_SOURCE_INSTRUMENTS[row]?.[col] ?? "";
   }
 
   drawPatchBay() {
@@ -629,17 +781,18 @@ class App {
       ctx.fillStyle = "#888";
       ctx.font = "9px sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(VARIANT_COL_LABELS[row], OUTPUT_GRID_X - 22, OUTPUT_GRID_Y + row * PATCH_CELL + 14);
+      ctx.fillText(this.outputRowLabel(row), OUTPUT_GRID_X - 34, OUTPUT_GRID_Y + row * PATCH_CELL + 14);
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = OUTPUT_GRID_X + col * PATCH_CELL;
         const y0 = OUTPUT_GRID_Y + row * PATCH_CELL;
         const slot = row * PATCH_GRID_COLS + col;
-        ctx.strokeStyle = "#444";
+        const enabled = this.outputSlotEnabled(slot);
+        ctx.strokeStyle = enabled ? "#444" : "#303030";
         ctx.strokeRect(x0, y0, PATCH_CELL, PATCH_CELL);
-        ctx.fillStyle = outputColors.has(slot) ? "#111" : "#888";
+        ctx.fillStyle = outputColors.has(slot) ? "#111" : enabled ? "#888" : "#333";
         ctx.font = "9px sans-serif";
         ctx.textAlign = "left";
-        ctx.fillText(VARIANT_COL_LABELS[col], x0 + 6, y0 + 14);
+        ctx.fillText(this.outputCellLabel(row, col), x0 + 6, y0 + 14);
         if (outputLabels.has(slot)) {
           ctx.fillStyle = "#111";
           ctx.font = "12px sans-serif";
@@ -685,7 +838,8 @@ class App {
         const slot = row * PATCH_GRID_COLS + col;
         const output = gridCenter(OUTPUT_GRID_X, OUTPUT_GRID_Y, row, col);
         const input = gridCenter(PATCH_GRID_X, PATCH_GRID_Y, row, col);
-        drawJack(ctx, output.x, output.y, outputColors.get(slot) || "#4a4a4a");
+        const outputColor = outputColors.get(slot) || (this.outputSlotEnabled(slot) ? "#4a4a4a" : "#242424");
+        drawJack(ctx, output.x, output.y, outputColor);
         drawJack(ctx, input.x, input.y, inputColors.get(`${row}:${col}`) || "#4a4a4a");
       }
     }
@@ -731,13 +885,21 @@ class App {
   sourceShortLabel(source) {
     const bpm = Math.round(source.bpm);
     if (source.slot === null) return `${bpm} BPM`;
-    const output = `Out ${source.slot + 1}`;
+    const output =
+      this.mode === "synth" && source.behavior && source.instrument
+        ? `${source.behavior}/${source.instrument}`
+        : `Out ${source.slot + 1}`;
     if (source.row === null) return `${bpm} - ${output}`;
     return `${bpm} - ${output} -> ${this.rowLabels()[source.row]} ${VARIANT_COL_LABELS[source.col]}`;
   }
 
   onRemoveSource(sourceId) {
-    this.worker.postMessage({ type: "remove_source", sourceId });
+    if (this.mode === "synth") {
+      this.scheduler?.removeVoice(sourceId);
+      this.synthEngine?.disposeVoice(sourceId);
+    } else {
+      this.worker.postMessage({ type: "remove_source", sourceId });
+    }
     this.sources.delete(sourceId);
     if (this.dragSourceId === sourceId) {
       this.dragSourceId = null;
