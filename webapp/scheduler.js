@@ -1,131 +1,91 @@
-import { PitchAllocator } from "./generative/allocator.js";
-import { HarmonicField, ROLE_SEMITONES } from "./generative/harmony.js";
-import { VoiceConductor } from "./generative/conductor.js";
-import { mulberry32 } from "./generative/rng.js";
+import { TRIGGER_PRESETS } from "./triggers.js";
 
 const ROOT_MIN = 36;
 const ROOT_MAX = 60;
-const ROLE_BEAT_MULTIPLIER = {
-  root: 4,
-  fifth: 3,
-  fourth: 4,
-  ninth: 5,
-  seventh: 6,
-  tension: 8,
-};
-const GATE_PROBABILITY = {
-  root: 0.85,
-  fifth: 0.75,
-  fourth: 0.65,
-  ninth: 0.55,
-  seventh: 0.45,
-  tension: 0.3,
-};
+const TICK_SUBDIVISION = "16n";
+const TICKS_PER_BEAT = 4; // 16th notes per quarter-note beat
 
 function clamp(value, lo, hi) {
   return Math.min(hi, Math.max(lo, value));
 }
 
-function detuneClassForBehavior(behavior) {
-  if (behavior === "bloom") return "granular";
-  if (behavior === "pad" || behavior === "drone") return "background";
-  return "foreground";
-}
-
-function isHeldBehavior(behavior) {
-  return behavior === "pad" || behavior === "bloom" || behavior === "drone";
-}
-
+// Drives every connected voice from ONE shared Tone.Transport tick instead of
+// each source's own scanned BPM. A per-voice free-running clock drifts out
+// of phase with every other voice over time (different BPMs are unrelated
+// multiples of each other); checking a shared tick counter keeps every
+// voice's pattern phase-locked to the same clock and to each other.
 export class Scheduler {
-  constructor(engine, { seed = 0 } = {}) {
+  constructor(engine, { Tone: tone = engine.Tone ?? globalThis.Tone } = {}) {
     this.engine = engine;
-    this.Tone = engine.Tone ?? globalThis.Tone;
-    this.seed = seed;
-    this.field = new HarmonicField(48);
-    this.allocator = new PitchAllocator(this.field);
-    this.conductor = new VoiceConductor({ seed });
-    this.voices = new Map();
-    this.loop = null;
+    this.Tone = tone;
+    this.rootMidi = 48;
+    this.voices = new Map(); // voiceId -> {behavior, semitoneOffset, centsOffset, triggerId, tickOffset}
+    this.tick = 0;
+    this.event = null;
   }
 
-  addVoice(voiceId, { behavior, bpm }) {
-    const activeCount = this.voices.size + 1;
-    const density = Math.min(1, activeCount / 20);
-    const assignment = this.allocator.allocate(
-      voiceId,
-      mulberry32(voiceId),
-      density,
-      detuneClassForBehavior(behavior)
-    );
+  addVoice(voiceId, { behavior, semitoneOffset = 0, centsOffset = 0 }) {
     this.voices.set(voiceId, {
       behavior,
-      bpm,
-      assignment,
-      lastTriggerBeat: -Infinity,
-      elapsedBeats: 0,
-      rng: mulberry32(this.seed * 1000003 + voiceId),
+      semitoneOffset,
+      centsOffset,
+      triggerId: null,
+      // A small per-voice tick offset (derived from the id) so same-pattern
+      // voices don't all land on tick 0 in lockstep -- they still share the
+      // same period/phase grid, just started at a different point on it.
+      tickOffset: voiceId % TICKS_PER_BEAT,
     });
   }
 
   removeVoice(voiceId) {
-    this.allocator.release(voiceId);
-    this.engine.releaseVoice(voiceId);
+    this.setVoiceTrigger(voiceId, null);
     this.voices.delete(voiceId);
   }
 
+  // Cabling a source onto a trigger-grid cell connects it (audible) and gives
+  // it a pattern; uncabling (triggerId=null) disconnects it (silent, zero
+  // audio-node cost -- see ToneEngine.setVoiceConnected).
+  setVoiceTrigger(voiceId, triggerId) {
+    const voice = this.voices.get(voiceId);
+    if (!voice) return;
+    voice.triggerId = triggerId ?? null;
+    this.engine.setVoiceConnected(voiceId, Boolean(triggerId));
+    if (!triggerId) this.engine.releaseVoice(voiceId);
+  }
+
   setRoot(midi) {
-    const root = clamp(midi, ROOT_MIN, ROOT_MAX);
-    this.field.rootMidi = root;
-    this.engine.setRoot(root);
+    this.rootMidi = clamp(midi, ROOT_MIN, ROOT_MAX);
+  }
+
+  midiForVoice(voice) {
+    return this.rootMidi + voice.semitoneOffset + voice.centsOffset / 100.0;
   }
 
   start() {
-    if (!this.loop) {
-      this.loop = new this.Tone.Loop(() => this._tick(), "16n");
-    }
-    this.loop.start(0);
+    if (this.event !== null) return;
+    this.event = this.Tone.Transport.scheduleRepeat(() => this._tick(), TICK_SUBDIVISION);
   }
 
   stop() {
-    if (!this.loop) return;
-    this.loop.stop(0);
+    if (this.event === null) return;
+    this.Tone.Transport.clear(this.event);
+    this.event = null;
   }
 
   _tick() {
-    const dt = this.Tone.Time("16n").toSeconds();
-    const activeIds = [...this.voices.keys()];
-    const gains = this.conductor.update(activeIds, dt);
-    for (const id of activeIds) {
-      this.engine.setVoiceGain(id, gains.get(id) ?? 0, 0.05);
-    }
+    const currentTick = this.tick++;
     for (const [id, voice] of this.voices) {
-      if (isHeldBehavior(voice.behavior)) {
+      const preset = TRIGGER_PRESETS[voice.triggerId];
+      if (!preset) continue; // uncabled: no pattern, no trigger
+      const ticksPerStep = preset.beatsPerStep * TICKS_PER_BEAT;
+      if ((currentTick + voice.tickOffset) % ticksPerStep !== 0) continue;
+      if (voice.behavior === "pad") {
         const engineVoice = this.engine.voices.get(id);
-        if (!engineVoice || !engineVoice.held) {
-          this.engine.triggerVoice(id, this.midiForCurrentRoot(voice.assignment), null);
-        }
-        continue;
+        if (engineVoice && engineVoice.held) continue; // already sustaining
       }
-      const secondsPerBeat = 60 / Math.max(20, Math.min(300, voice.bpm || 70));
-      const beatsThisTick = dt / secondsPerBeat;
-      voice.elapsedBeats += beatsThisTick;
-      const beatsPerNote = ROLE_BEAT_MULTIPLIER[voice.assignment.role] ?? 4;
-      if (voice.elapsedBeats - voice.lastTriggerBeat < beatsPerNote) continue;
-      const gate = GATE_PROBABILITY[voice.assignment.role] ?? 0.5;
-      if (voice.rng() <= gate) {
-        const noteDur = secondsPerBeat * Math.min(2.5, beatsPerNote * 0.7);
-        this.engine.triggerVoice(id, this.midiForCurrentRoot(voice.assignment), noteDur);
-      }
-      voice.lastTriggerBeat = voice.elapsedBeats;
+      if (Math.random() > preset.probability) continue;
+      const noteDur = preset.beatsPerStep >= 8 ? 3.0 : 0.6;
+      this.engine.triggerVoice(id, this.midiForVoice(voice), noteDur);
     }
-  }
-
-  midiForCurrentRoot(assignment) {
-    return (
-      this.field.rootMidi +
-      ROLE_SEMITONES[assignment.role] +
-      12 * assignment.octave +
-      assignment.detuneCents / 100.0
-    );
   }
 }

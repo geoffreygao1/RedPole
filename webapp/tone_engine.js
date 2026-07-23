@@ -1,10 +1,12 @@
 import { CLICKBATH_BASE_URL, INSTRUMENT_NOTE_URLS } from "./generative/instrument-maps.js";
 import { midiToHz } from "./generative/harmony.js";
-import { createModifierNode } from "./modifiers.js";
 
-const ROOT_MIN = 36;
-const ROOT_MAX = 60;
 const NEGATIVE_INFINITY_DB = -Infinity;
+
+// One shared Transport tempo for every voice's trigger grid, so patterns are
+// phase-locked to a single clock instead of each source's own scanned BPM
+// (independent per-voice clocks drift out of sync with each other over time).
+const TRANSPORT_BPM = 90;
 
 function clamp(value, lo, hi) {
   return Math.min(hi, Math.max(lo, value));
@@ -37,10 +39,9 @@ function disconnect(node) {
 const BEHAVIOR_ENVELOPES = {
   pluck: { attack: 0.005, release: 1.5 },
   pad: { attack: 0.4, release: 2.0 },
-  bloom: { attack: 1.5, release: 3.0 },
 };
 
-const HELD_BEHAVIORS = new Set(["pad", "bloom", "drone"]);
+const HELD_BEHAVIORS = new Set(["pad"]);
 
 export class ToneEngine {
   constructor({ Tone: tone = globalThis.Tone } = {}) {
@@ -50,16 +51,19 @@ export class ToneEngine {
     this.delay = null;
     this.reverb = null;
     this.buffers = null;
-    this.rootMidi = 48;
     this.voices = new Map();
     this._started = false;
   }
 
   async init() {
     if (this.master) return;
+    this.Tone.Transport.bpm.value = TRANSPORT_BPM;
     this.master = new this.Tone.Gain(this.Tone.dbToGain(-6));
-    this.delay = new this.Tone.FeedbackDelay({ delayTime: 0.4, feedback: 0.5, wet: 0 });
-    this.reverb = new this.Tone.Reverb({ decay: 8, wet: 0 });
+    // Matches clickbath's wash character: a long convolution reverb (~10s
+    // decay, clickbath uses 10) and a tempo-synced feedback delay with a long
+    // trailing echo (clickbath: FeedbackDelay('2n', 0.85)).
+    this.delay = new this.Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.78, wet: 0 });
+    this.reverb = new this.Tone.Reverb({ decay: 10, wet: 0 });
     this.master.chain(this.delay, this.reverb, this.Tone.Destination);
 
     // Decode every instrument sample ONCE. Per-voice samplers reference these
@@ -84,13 +88,6 @@ export class ToneEngine {
     rampParam(this.delay.wet, clamp(amount, 0, 1), 0.05);
   }
 
-  setRoot(midiFloat) {
-    // Cheap: the scheduler reads rootMidi when it computes each note's pitch,
-    // so the new root applies to subsequently-triggered notes. (No per-voice
-    // pitch-shifter — held notes keep their pitch until retriggered.)
-    this.rootMidi = clamp(midiFloat, ROOT_MIN, ROOT_MAX);
-  }
-
   async resume() {
     await this.Tone.start();
     this._started = true;
@@ -107,19 +104,15 @@ export class ToneEngine {
 
   // A placed-but-uncabled source is pure metadata: NO audio nodes are created,
   // so loading many silent sources into the patch bay costs nothing. The Tone
-  // nodes are built lazily the first time the voice is cabled to a modifier.
-  createVoice(voiceId, { instrument, behavior, hue, sat, val }) {
+  // nodes are built lazily the first time the voice is connected (cabled to a
+  // trigger-grid cell).
+  createVoice(voiceId, { instrument, behavior }) {
     this.disposeVoice(voiceId);
     this.voices.set(voiceId, {
       instrument,
       behavior,
-      hue,
-      sat,
-      val,
       nodes: null,
-      modifierId: null,
       held: false,
-      baseMidi: null,
     });
   }
 
@@ -135,12 +128,12 @@ export class ToneEngine {
     const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);
     sampler.connect(volume);
     volume.connect(this.master);
-    voice.nodes = { sampler, volume, modifier: null };
+    voice.nodes = { sampler, volume };
   }
 
   _teardownNodes(voice) {
     if (!voice.nodes) return;
-    const { sampler, volume, modifier } = voice.nodes;
+    const { sampler, volume } = voice.nodes;
     if (voice.held) {
       try {
         sampler.triggerRelease();
@@ -151,38 +144,18 @@ export class ToneEngine {
     }
     disconnect(sampler);
     disconnect(volume);
-    if (modifier) {
-      disconnect(modifier);
-      modifier.dispose();
-    }
     sampler.dispose();
     volume.dispose();
     voice.nodes = null;
-    voice.modifierId = null;
   }
 
-  setVoiceModifier(voiceId, modifierId) {
+  // Connecting a voice (cabling it to a trigger-grid cell) is what makes it
+  // audible; disconnecting tears the DSP down again (silent, zero cost).
+  setVoiceConnected(voiceId, connected) {
     const voice = this.voices.get(voiceId);
     if (!voice) return;
-    if (!modifierId) {
-      // Off-grid / cleared: silence the voice by tearing down its DSP entirely.
-      this._teardownNodes(voice);
-      return;
-    }
-    if (!voice.nodes) this._buildNodes(voice);
-    const nodes = voice.nodes;
-    if (nodes.modifier) {
-      disconnect(nodes.sampler);
-      disconnect(nodes.modifier);
-      nodes.modifier.dispose();
-      nodes.modifier = null;
-    }
-    const modifier = createModifierNode(this.Tone, modifierId);
-    disconnect(nodes.sampler);
-    nodes.sampler.connect(modifier);
-    modifier.connect(nodes.volume);
-    nodes.modifier = modifier;
-    voice.modifierId = modifierId;
+    if (connected && !voice.nodes) this._buildNodes(voice);
+    if (!connected) this._teardownNodes(voice);
   }
 
   setVoiceGain(voiceId, gain, rampSeconds = 0.05) {
@@ -193,9 +166,8 @@ export class ToneEngine {
 
   triggerVoice(voiceId, midi, durationSeconds = null) {
     const voice = this.voices.get(voiceId);
-    if (!voice || !voice.nodes) return; // uncabled voices make no sound
+    if (!voice || !voice.nodes) return; // unconnected voices make no sound
     const frequency = midiToHz(midi);
-    voice.baseMidi = midi;
     if (HELD_BEHAVIORS.has(voice.behavior)) {
       if (!voice.held) {
         voice.nodes.sampler.triggerAttack(frequency);

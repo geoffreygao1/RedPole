@@ -1,6 +1,6 @@
-import { MODIFIER_COLS, MODIFIER_ROWS } from "./modifiers.js";
 import { Scheduler } from "./scheduler.js";
 import { ToneEngine } from "./tone_engine.js";
+import { TRIGGER_COLS, TRIGGER_ROWS, triggerPresetId } from "./triggers.js";
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
@@ -16,12 +16,13 @@ const PATCH_SOURCE_LIMIT = 25;
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
 const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
-const SYNTH_ROW_LABELS = MODIFIER_ROWS;
-const SYNTH_SOURCE_ROWS = ["pluck", "pad", "bloom"];
+const SYNTH_ROW_LABELS = TRIGGER_ROWS;
+// Two behaviors x 5 columns = 10 cells, covering all 8 clickbath instruments
+// (piano and casio each appear twice, once per behavior).
+const SYNTH_SOURCE_ROWS = ["pluck", "pad"];
 const SYNTH_SOURCE_INSTRUMENTS = [
   ["piano", "guitar", "tapeguitar", "tapebell", "casio"],
   ["strings", "flute", "clarinet", "casio", "piano"],
-  ["strings", "flute", "clarinet", "guitar", "tapebell"],
 ];
 const TAPE_ROW_INDEX = PATCH_ROW_ENGINES.indexOf("tape");
 const VARIANT_COL_LABELS = ["I", "II", "III", "IV", "V"];
@@ -39,6 +40,27 @@ const FINGER_VAL_MAX = 0.98;
 // button samples from, distinct from the wider 20-300 manual BPM range.
 const RANDOM_BPM_MIN = 45;
 const RANDOM_BPM_MAX = 180;
+
+// Color/BPM now drive the sampler's resampled pitch directly (clickbath-
+// style: hue ~ the Y-axis click position that picked octave/note; BPM is a
+// second parameter, here a fine detune -- like a second click-position axis).
+// Actual note TIMING comes from the destination trigger-grid cell instead.
+const PITCH_SEMITONE_RANGE = 12; // hue spans the picker -> +/-1 octave
+const DETUNE_CENTS_RANGE = 40; // bpm spans 20-300 -> +/- this many cents
+
+function clamp01(x) {
+  return Math.min(1, Math.max(0, x));
+}
+
+function hueToSemitoneOffset(hue) {
+  const fraction = (hue - FINGER_HUE_MIN) / (FINGER_HUE_MAX - FINGER_HUE_MIN || 1);
+  return (clamp01(fraction) * 2 - 1) * PITCH_SEMITONE_RANGE;
+}
+
+function bpmToCentsOffset(bpm) {
+  const fraction = (bpm - 20) / (300 - 20);
+  return (clamp01(fraction) * 2 - 1) * DETUNE_CENTS_RANGE;
+}
 
 function hsvToRgb(h, s, v) {
   const i = Math.floor(h * 6);
@@ -629,7 +651,7 @@ class App {
       }
     } else if (cell === null) {
       if (this.mode === "synth") {
-        this.synthEngine?.setVoiceModifier(this.dragSourceId, null);
+        this.scheduler?.setVoiceTrigger(this.dragSourceId, null);
         source.row = null;
         source.col = null;
       } else {
@@ -641,7 +663,7 @@ class App {
         source.col = null;
       }
     } else {
-      this.routeSourceToEffect(this.dragSourceId, cell);
+      this.routeSourceToTrigger(this.dragSourceId, cell);
     }
     this.dragPos = null;
     this.dragSourceId = null;
@@ -708,9 +730,9 @@ class App {
     const row = Math.floor(slot / PATCH_GRID_COLS);
     const col = slot % PATCH_GRID_COLS;
     const position = outputSlotPosition(slot);
-    const previousModifier =
+    const previousTrigger =
       this.mode === "synth" && source.row !== null && source.col !== null
-        ? this.modifierPresetId(source.row, source.col)
+        ? triggerPresetId(source.row, source.col)
         : null;
     source.slot = slot;
     source.x = position.x;
@@ -731,29 +753,26 @@ class App {
       this.synthEngine?.createVoice(sourceId, {
         instrument: config.instrument,
         behavior: config.behavior,
-        hue: source.hue,
-        sat: source.sat,
-        val: source.val,
       });
-      this.scheduler?.addVoice(sourceId, { behavior: config.behavior, bpm: source.bpm });
-      if (previousModifier) {
-        this.synthEngine?.setVoiceModifier(sourceId, previousModifier);
+      this.scheduler?.addVoice(sourceId, {
+        behavior: config.behavior,
+        semitoneOffset: hueToSemitoneOffset(source.hue),
+        centsOffset: bpmToCentsOffset(source.bpm),
+      });
+      if (previousTrigger) {
+        this.scheduler?.setVoiceTrigger(sourceId, previousTrigger);
       }
     }
     this.selectedSourceId = null;
   }
 
-  modifierPresetId(row, col) {
-    return `${MODIFIER_ROWS[row]}_${col + 1}`;
-  }
-
-  routeSourceToEffect(sourceId, cell) {
+  routeSourceToTrigger(sourceId, cell) {
     const source = this.sources.get(sourceId);
     if (!source || source.slot === null) return;
     const row = cell.row;
     const col = cell.col;
     if (this.mode === "synth") {
-      this.synthEngine?.setVoiceModifier(sourceId, this.modifierPresetId(row, col));
+      this.scheduler?.setVoiceTrigger(sourceId, triggerPresetId(row, col));
       source.row = row;
       source.col = col;
       return;
@@ -776,6 +795,10 @@ class App {
 
   rowLabels() {
     return this.mode === "synth" ? SYNTH_ROW_LABELS : LOOP_ROW_LABELS;
+  }
+
+  inputColLabel(col) {
+    return this.mode === "synth" ? TRIGGER_COLS[col] : VARIANT_COL_LABELS[col];
   }
 
   outputRowLabel(row) {
@@ -852,7 +875,7 @@ class App {
         ctx.strokeRect(x0, y0, PATCH_CELL, PATCH_CELL);
         ctx.fillStyle = "#888";
         ctx.font = "9px sans-serif";
-        ctx.fillText(VARIANT_COL_LABELS[col], x0 + 6, y0 + 14);
+        ctx.fillText(this.inputColLabel(col), x0 + 6, y0 + 14);
       }
     }
 
@@ -927,7 +950,7 @@ class App {
         ? `${source.behavior}/${source.instrument}`
         : `Out ${source.slot + 1}`;
     if (source.row === null) return `${bpm} - ${output}`;
-    return `${bpm} - ${output} -> ${this.rowLabels()[source.row]} ${VARIANT_COL_LABELS[source.col]}`;
+    return `${bpm} - ${output} -> ${this.rowLabels()[source.row]} ${this.inputColLabel(source.col)}`;
   }
 
   onRemoveSource(sourceId) {
