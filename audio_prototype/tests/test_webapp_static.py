@@ -93,14 +93,19 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert 'class="patch-controls"' in index_html
     assert 'class="patch-control knob-control"' in index_html
     assert 'id="mood-select"' in index_html
-    assert '<option value="warm">Warm</option>' in index_html
+    assert '<option value="optimistic">Optimistic</option>' in index_html
+    assert '<option value="happy">Happy</option>' in index_html
+    assert '<option value="mysterious">Mysterious</option>' in index_html
+    assert '<option value="melancholy">Melancholy</option>' in index_html
     assert "this.moodSelect = document.getElementById(\"mood-select\");" in main_js
     assert "this.scheduler.setMood(this.moodSelect.value);" in main_js
     assert "this.scheduler?.setMood(e.target.value);" in main_js
     assert "syncKnobControl" in main_js
-    assert "--knob-angle" in main_js
     assert ".knob-control" in style_css
     assert "conic-gradient" in style_css
+    assert "opacity: 0;" in style_css
+    assert ".knob-control::before" in style_css
+    assert ".knob-control input[type=\"range\"] {" in style_css
 
 
 def test_patch_bay_arrays_and_knobs_have_balanced_layout():
@@ -108,16 +113,34 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     main_js = (ROOT / "webapp" / "main.js").read_text()
     style_css = (ROOT / "webapp" / "style.css").read_text()
 
-    assert "const OUTPUT_GRID_X = 58;" in main_js
-    assert "const PATCH_GRID_X = 414;" in main_js
+    assert "const PATCH_CELL = 50;" in main_js
+    assert "const OUTPUT_GRID_X = 54;" in main_js
+    assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
-    assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-patch-bay-layout"' in index_html
-    assert 'src="main.js?v=20260723-patch-bay-layout"' in index_html
+    assert 'ctx.fillText("effects", PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 16, PATCH_GRID_Y - 18);' in main_js
+    assert 'href="style.css?v=20260723-compact-patch-layout"' in index_html
+    assert 'src="main.js?v=20260723-compact-patch-layout"' in index_html
+    assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
+    assert '<canvas id="patch-canvas" width="740" height="330"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
     assert "justify-items: center;" in style_css
-    assert "background: transparent;" in style_css
+    assert "grid-template-columns: 220px 176px 778px;" in style_css
+    assert "#scan-input {\n  width: 220px;" in style_css
+    assert "#patch-bay {\n  width: 778px;" in style_css
     assert "transform: rotate(var(--knob-angle))" not in style_css
+
+
+def test_effect_row_labels_are_drawn_on_right_side_of_effect_matrix():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    start = main_js.index("for (let row = 0; row < PATCH_GRID_ROWS; row++)", main_js.index("drawPatchBay()"))
+    effects_loop = main_js[
+        main_js.index("for (let row = 0; row < PATCH_GRID_ROWS; row++)", start + 1) :
+        main_js.index("for (const [, source] of this.sources)", start)
+    ]
+    assert "ctx.textAlign = \"left\";" in effects_loop
+    assert "PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10" in effects_loop
+    assert "PATCH_GRID_X - 12" not in effects_loop
 
 
 def test_synth_output_jacks_use_roman_column_labels_not_instrument_names():
@@ -279,12 +302,12 @@ def test_sources_are_left_of_patch_bay_and_drag_routed_explicitly():
 
     style_css = (ROOT / "webapp" / "style.css").read_text()
     assert "#app" in style_css
-    assert "grid-template-columns: 260px 176px 830px;" in style_css
+    assert "grid-template-columns: 220px 176px 778px;" in style_css
     assert "flex-wrap" not in style_css
     assert "#sources" in style_css
     assert "width: 176px;" in style_css
     assert "#patch-bay" in style_css
-    assert "width: 830px;" in style_css
+    assert "width: 778px;" in style_css
     assert "white-space: nowrap;" in style_css
     assert 'removeButton.textContent = "\\u00d7";' in main_js
     assert 'removeButton.className = "icon-button";' in main_js
@@ -311,8 +334,8 @@ def test_scan_controls_have_polished_actions_and_inline_color_preview():
     assert ".transport-button" in style_css
     assert ".scan-parameter-row" in style_css
     assert "#scan-color-preview" in style_css
-    assert "width: 42px;" in style_css
-    assert "height: 30px;" in style_css
+    assert "width: 34px;" in style_css
+    assert "height: 24px;" in style_css
 
 
 def test_web_synth_loads_local_samples_without_a_committed_manifest():

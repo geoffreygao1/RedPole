@@ -29,16 +29,18 @@ test("tensionEnabled=false drops the tension role", () => {
   assert.ok(!f.roles().includes("tension"));
 });
 
-test("harmonic field can switch mood palettes", () => {
-  const f = new HarmonicField(48, true, "open");
-  assert.equal(f.midiForRole("fifth"), 55);
-  f.setMood("warm");
+test("harmonic field can switch clickbath-derived mood palettes", () => {
+  const f = new HarmonicField(48, true, "optimistic");
   assert.equal(f.midiForRole("third"), 52);
-  f.setMood("dusk");
-  assert.equal(f.midiForRole("third"), 51);
-  f.setMood("glass");
-  assert.equal(f.midiForRole("lydian"), 54);
-  f.setMood("tension");
-  assert.ok(f.roles().includes("flatsecond"));
-  assert.deepEqual(Object.keys(HARMONIC_PALETTES), ["open", "warm", "dusk", "glass", "tension"]);
+  assert.equal(f.midiForRole("sixth"), 57);
+  f.setMood("happy");
+  assert.equal(f.midiForRole("second"), 50);
+  assert.equal(f.midiForRole("sixth"), 57);
+  f.setMood("mysterious");
+  assert.equal(f.midiForRole("root"), 54);
+  assert.equal(f.midiForRole("minorThird"), 57);
+  f.setMood("melancholy");
+  assert.equal(f.midiForRole("minorThird"), 51);
+  assert.equal(f.midiForRole("second"), 50);
+  assert.deepEqual(Object.keys(HARMONIC_PALETTES), ["optimistic", "happy", "mysterious", "melancholy"]);
 });

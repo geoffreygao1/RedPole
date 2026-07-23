@@ -1,4 +1,4 @@
-import { Scheduler } from "./scheduler.js?v=20260723-trigger-mood";
+import { Scheduler } from "./scheduler.js?v=20260723-clickbath-moods";
 import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,
@@ -12,10 +12,10 @@ import { deriveFingerprint } from "./generative/scan-profile.js?v=20260723-norma
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
-const PATCH_CELL = 58;
-const PATCH_GRID_X = 414;
+const PATCH_CELL = 50;
+const PATCH_GRID_X = 362;
 const PATCH_GRID_Y = 56;
-const OUTPUT_GRID_X = 58;
+const OUTPUT_GRID_X = 54;
 const OUTPUT_GRID_Y = 56;
 const APP_ASSET_VERSION = Date.now().toString();
 const JACK_RADIUS = 9;
@@ -869,7 +869,7 @@ class App {
     ctx.font = "12px sans-serif";
     ctx.textAlign = "left";
     ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);
-    ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);
+    ctx.fillText("effects", PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 16, PATCH_GRID_Y - 18);
 
     const outputColors = new Map();
     const outputLabels = new Map();
@@ -914,8 +914,8 @@ class App {
     for (let row = 0; row < PATCH_GRID_ROWS; row++) {
       ctx.fillStyle = "#d5d5d5";
       ctx.font = "12px sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(rowLabels[row], PATCH_GRID_X - 12, PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2);
+      ctx.textAlign = "left";
+      ctx.fillText(rowLabels[row], PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10, PATCH_GRID_Y + row * PATCH_CELL + PATCH_CELL / 2);
       ctx.textAlign = "left";
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
