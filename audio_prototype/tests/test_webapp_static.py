@@ -94,9 +94,16 @@ def test_synth_mode_patch_labels_show_sound_bath_effects():
 
 def test_synth_wash_controls_default_to_seventy_percent():
     index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
 
     assert '<input id="reverb-slider" type="range" min="0" max="1.5" step="0.01" value="1.05" />' in index_html
     assert '<input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.7" />' in index_html
+    assert 'from "./tone_engine.js?v=20260723-reverb-normalize"' in main_js
+    assert "const REVERB_UI_MAX = 1.5;" in tone_engine_js
+    assert "const normalized = clamp(amount / REVERB_UI_MAX, 0, 1);" in tone_engine_js
+    assert "rampParam(this.reverb.wet, normalized, 0.05);" in tone_engine_js
+    assert "rampParam(this.reverb.wet, clamp(amount, 0, 1.5), 0.05);" not in tone_engine_js
 
 
 def test_synth_default_root_is_one_octave_higher():
@@ -142,7 +149,7 @@ def test_connected_synth_voices_start_at_audible_gain():
     main_js = (ROOT / "webapp" / "main.js").read_text()
     tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
 
-    assert 'from "./tone_engine.js?v=20260723-audible-patch"' in main_js
+    assert 'from "./tone_engine.js?v=20260723-reverb-normalize"' in main_js
     assert "const DEFAULT_CONNECTED_GAIN = 0.55;" in tone_engine_js
     assert "new this.Tone.Volume(gainToDb(DEFAULT_CONNECTED_GAIN));" in tone_engine_js
     assert "const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);" not in tone_engine_js
@@ -184,6 +191,7 @@ def test_deployed_assets_are_cache_busted_from_index_to_worker():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
+    assert '<link rel="icon" href="data:," />' in index_html
     assert 'src="main.js?v=' in index_html
     assert "const APP_ASSET_VERSION = Date.now().toString();" in main_js
     assert 'new Worker(`worker.js?v=${APP_ASSET_VERSION}`)' in main_js

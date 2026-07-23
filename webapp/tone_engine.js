@@ -3,6 +3,7 @@ import { midiToHz } from "./generative/harmony.js";
 
 const NEGATIVE_INFINITY_DB = -Infinity;
 const DEFAULT_CONNECTED_GAIN = 0.55;
+const REVERB_UI_MAX = 1.5;
 
 // One shared Transport tempo for every voice's trigger grid, so patterns are
 // phase-locked to a single clock instead of each source's own scanned BPM
@@ -81,7 +82,8 @@ export class ToneEngine {
 
   setReverb(amount) {
     if (!this.reverb) return;
-    rampParam(this.reverb.wet, clamp(amount, 0, 1.5), 0.05);
+    const normalized = clamp(amount / REVERB_UI_MAX, 0, 1);
+    rampParam(this.reverb.wet, normalized, 0.05);
   }
 
   setDelay(amount) {
