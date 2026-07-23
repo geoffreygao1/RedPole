@@ -83,6 +83,16 @@ def test_synth_play_and_live_patch_creation_audition_connected_voices():
     assert "this.auditionSourceIfPlaying(sourceId);" in main_js
 
 
+def test_connected_synth_voices_start_at_audible_gain():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
+
+    assert 'from "./tone_engine.js?v=20260723-audible-patch"' in main_js
+    assert "const DEFAULT_CONNECTED_GAIN = 0.55;" in tone_engine_js
+    assert "new this.Tone.Volume(gainToDb(DEFAULT_CONNECTED_GAIN));" in tone_engine_js
+    assert "const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);" not in tone_engine_js
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 

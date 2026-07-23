@@ -1,5 +1,5 @@
 import { Scheduler } from "./scheduler.js";
-import { ToneEngine } from "./tone_engine.js";
+import { ToneEngine } from "./tone_engine.js?v=20260723-audible-patch";
 import { TRIGGER_COLS, TRIGGER_ROWS, triggerPresetId } from "./triggers.js";
 
 const PATCH_GRID_ROWS = 5;

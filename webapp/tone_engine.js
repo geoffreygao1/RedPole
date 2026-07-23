@@ -2,6 +2,7 @@ import { CLICKBATH_BASE_URL, INSTRUMENT_NOTE_URLS } from "./generative/instrumen
 import { midiToHz } from "./generative/harmony.js";
 
 const NEGATIVE_INFINITY_DB = -Infinity;
+const DEFAULT_CONNECTED_GAIN = 0.55;
 
 // One shared Transport tempo for every voice's trigger grid, so patterns are
 // phase-locked to a single clock instead of each source's own scanned BPM
@@ -125,7 +126,7 @@ export class ToneEngine {
       urls[note] = this.buffers.get(`${voice.instrument}_${note}`);
     }
     const sampler = new this.Tone.Sampler({ urls, attack: env.attack, release: env.release });
-    const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);
+    const volume = new this.Tone.Volume(gainToDb(DEFAULT_CONNECTED_GAIN));
     sampler.connect(volume);
     volume.connect(this.master);
     voice.nodes = { sampler, volume };
