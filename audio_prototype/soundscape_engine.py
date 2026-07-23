@@ -12,6 +12,7 @@ from soundscape_density import DensityGainSmoother, ROLE_GAIN, assign_voice_role
 from soundscape_harmony import HarmonicField, PitchAllocator, ROLE_SEMITONES
 from soundscape_sources import SourceBank
 from soundscape_transforms import TransformBank
+from soundscape_wash import SoundscapeWash
 
 
 class SoundscapePatch:
@@ -39,6 +40,7 @@ class SoundscapeEngine:
         self._root_target = float(root_midi)
         self._root_current = float(root_midi)
         self.limiter = RmsLimiter(target_rms=0.3)
+        self.wash = SoundscapeWash(samplerate)
         self._patches = {}
         self._assignments = {}
         self._connect_order = []
@@ -65,6 +67,12 @@ class SoundscapeEngine:
     def set_root(self, target_midi):
         self._root_target = float(target_midi)
 
+    def set_reverb(self, amount):
+        self.wash.set_reverb(amount)
+
+    def set_delay(self, amount):
+        self.wash.set_delay(amount)
+
     def generate_block(self, frames):
         patches = list(self._patches.values())
         active_ids = [p.id for p in patches]
@@ -78,37 +86,33 @@ class SoundscapeEngine:
         self.field.root_midi = self._root_current
 
         conductor_gains = self.conductor.update(active_ids, frames)
-        if not patches:
-            return np.zeros(frames, dtype=np.float32)
-
-        density = min(1.0, len(patches) / 20.0)
-        voice_gain = self.gain_smoother.update(len(patches))
-
         mix = np.zeros(frames, dtype=np.float64)
-        for patch in patches:
-            if patch.id not in self._assignments:
-                detune_class = "granular" if patch.source_preset.startswith("granular") else "foreground"
-                rng = np.random.default_rng(patch.id)
-                self._assignments[patch.id] = self.allocator.allocate(patch.id, rng, density, detune_class)
-            assignment = self._assignments[patch.id]
-            # Re-derive pitch from the glided root, preserving the role, octave
-            # and detune the allocator chose (parallel shift of all tonal voices).
-            assignment.midi = (
-                self._root_current
-                + ROLE_SEMITONES[assignment.harmonic_role]
-                + 12 * assignment.octave
-                + assignment.detune_cents / 100.0
-            )
-            gain = conductor_gains.get(patch.id, 0.0)
-            if gain <= 1e-6:
-                continue
-            voice = self.sources.render(
-                patch.id, patch.source_preset, assignment,
-                patch.hue, patch.sat, patch.val, patch.bpm, frames,
-            )
-            if patch.transform_preset:
-                voice = self.transforms.render(patch.id, patch.transform_preset, voice, patch.bpm)
-            mix += voice * gain * voice_gain
+        if patches:
+            density = min(1.0, len(patches) / 20.0)
+            voice_gain = self.gain_smoother.update(len(patches))
+            for patch in patches:
+                if patch.id not in self._assignments:
+                    detune_class = "granular" if patch.source_preset.startswith("granular") else "foreground"
+                    rng = np.random.default_rng(patch.id)
+                    self._assignments[patch.id] = self.allocator.allocate(patch.id, rng, density, detune_class)
+                assignment = self._assignments[patch.id]
+                assignment.midi = (
+                    self._root_current
+                    + ROLE_SEMITONES[assignment.harmonic_role]
+                    + 12 * assignment.octave
+                    + assignment.detune_cents / 100.0
+                )
+                gain = conductor_gains.get(patch.id, 0.0)
+                if gain <= 1e-6:
+                    continue
+                voice = self.sources.render(
+                    patch.id, patch.source_preset, assignment,
+                    patch.hue, patch.sat, patch.val, patch.bpm, frames,
+                )
+                if patch.transform_preset:
+                    voice = self.transforms.render(patch.id, patch.transform_preset, voice, patch.bpm)
+                mix += voice * gain * voice_gain
 
-        mixed = self.limiter.process(mix.astype(np.float32))
+        washed = self.wash.process(mix.astype(np.float32))
+        mixed = self.limiter.process(washed)
         return soft_clip(mixed).astype(np.float32)

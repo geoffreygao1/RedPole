@@ -30,6 +30,28 @@ def test_disconnect_removes_the_voice():
     np.testing.assert_allclose(silent, np.zeros(512))
 
 
+def test_reverb_tail_rings_after_voice_removed():
+    engine = SoundscapeEngine(samplerate=44100, seed=1, root_midi=48)
+    engine.set_reverb(0.8)
+    engine.set_delay(0.3)
+    pid = engine.connect_patch(hue=0.03, sat=0.68, val=0.94, bpm=90.0, source_preset="additive_2")
+    for _ in range(40):
+        engine.generate_block(1024)
+    engine.disconnect_patch(pid)
+    tail = np.concatenate([engine.generate_block(1024) for _ in range(20)])
+    assert float(np.max(np.abs(tail))) > 1e-4          # not instant silence
+    assert not np.any(np.isnan(tail))
+    assert float(np.max(np.abs(tail))) <= 1.0 + 1e-3
+
+
+def test_zero_wash_matches_dry_when_idle():
+    engine = SoundscapeEngine(samplerate=44100, seed=1, root_midi=48)
+    engine.set_reverb(0.0)
+    engine.set_delay(0.0)
+    silent = engine.generate_block(1024)
+    np.testing.assert_allclose(silent, np.zeros(1024), atol=1e-6)
+
+
 def test_set_patch_transform_updates_and_clears_without_new_patch():
     engine = SoundscapeEngine(samplerate=44100, seed=1)
     pid = engine.connect_patch(hue=0.03, sat=0.68, val=0.94, bpm=90.0,
