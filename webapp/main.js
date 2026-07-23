@@ -13,9 +13,9 @@ import { deriveFingerprint } from "./generative/scan-profile.js?v=20260723-norma
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
 const PATCH_CELL = 58;
-const PATCH_GRID_X = 480;
+const PATCH_GRID_X = 414;
 const PATCH_GRID_Y = 56;
-const OUTPUT_GRID_X = 36;
+const OUTPUT_GRID_X = 58;
 const OUTPUT_GRID_Y = 56;
 const APP_ASSET_VERSION = Date.now().toString();
 const JACK_RADIUS = 9;
@@ -868,8 +868,8 @@ class App {
     ctx.fillStyle = "#999";
     ctx.font = "12px sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText("outputs", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);
-    ctx.fillText("inputs", PATCH_GRID_X, PATCH_GRID_Y - 18);
+    ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);
+    ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);
 
     const outputColors = new Map();
     const outputLabels = new Map();

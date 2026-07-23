@@ -47,10 +47,10 @@ section h2 {
 }
 
 .section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 10px;
   margin-bottom: 12px;
 }
 
@@ -130,10 +130,12 @@ section h3 {
 }
 
 .patch-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(64px, 1fr));
+  align-items: start;
+  justify-items: center;
+  gap: 8px;
 }
 
 .patch-control {
@@ -180,14 +182,11 @@ section h3 {
 
 .knob-control input[type="range"]::-webkit-slider-thumb {
   appearance: none;
-  width: 4px;
-  height: 16px;
-  margin-top: 3px;
-  border-radius: 2px;
-  background: #f0d2c8;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
-  transform: rotate(var(--knob-angle)) translateY(-12px);
-  transform-origin: 50% 18px;
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  border: 0;
+  background: transparent;
 }
 
 .knob-control input[type="range"]::-moz-range-track {
@@ -197,11 +196,11 @@ section h3 {
 }
 
 .knob-control input[type="range"]::-moz-range-thumb {
-  width: 4px;
-  height: 16px;
+  width: 42px;
+  height: 42px;
   border: 0;
-  border-radius: 2px;
-  background: #f0d2c8;
+  border-radius: 50%;
+  background: transparent;
 }
 
 .select-control select {

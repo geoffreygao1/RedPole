@@ -103,6 +103,23 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert "conic-gradient" in style_css
 
 
+def test_patch_bay_arrays_and_knobs_have_balanced_layout():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    style_css = (ROOT / "webapp" / "style.css").read_text()
+
+    assert "const OUTPUT_GRID_X = 58;" in main_js
+    assert "const PATCH_GRID_X = 414;" in main_js
+    assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
+    assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
+    assert 'href="style.css?v=20260723-patch-bay-layout"' in index_html
+    assert 'src="main.js?v=20260723-patch-bay-layout"' in index_html
+    assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
+    assert "justify-items: center;" in style_css
+    assert "background: transparent;" in style_css
+    assert "transform: rotate(var(--knob-angle))" not in style_css
+
+
 def test_synth_output_jacks_use_roman_column_labels_not_instrument_names():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
