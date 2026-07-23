@@ -212,6 +212,15 @@ def test_set_root_midi_rebuilds_and_clears_patches():
     assert eng.active_patches() == []
 
 
+def test_set_root_updates_target_without_clearing_patches():
+    eng = SynthAudioEngine(seed=1, root_midi=62)
+    pid = eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2", None)
+    eng.set_root(55.0)
+    assert eng.root_midi == 55
+    assert [p["id"] for p in eng.active_patches()] == [pid]   # patches survive
+    assert eng.engine._root_target == 55.0
+
+
 def test_set_root_midi_reapplies_loaded_sample():
     eng = SynthAudioEngine(seed=6)
     eng.load_sample_array(np.sin(2 * np.pi * 440 * np.arange(44100 * 3) / 44100))

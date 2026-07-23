@@ -26,6 +26,7 @@ class SynthAudioEngine:
         self.blocksize = blocksize
         self._seed = seed
         self._root_midi = int(root_midi)
+        self._root_target = float(self._root_midi)
         self._lock = threading.Lock()
         self.engine = SoundscapeEngine(
             samplerate=samplerate, seed=seed, root_midi=self._root_midi
@@ -39,7 +40,7 @@ class SynthAudioEngine:
 
     @property
     def root_midi(self):
-        return self._root_midi
+        return int(round(self._root_target))
 
     # ---------- patch control ----------
 
@@ -166,8 +167,14 @@ class SynthAudioEngine:
     def set_root_midi(self, root_midi):
         with self._lock:
             self._root_midi = int(root_midi)
+            self._root_target = float(root_midi)
             self.engine = SoundscapeEngine(
                 samplerate=self.samplerate, seed=self._seed, root_midi=self._root_midi
             )
             if self._loaded_sample is not None:
                 self.engine.sources.texture.load_sample(self._loaded_sample)
+
+    def set_root(self, target_midi):
+        with self._lock:
+            self._root_target = float(target_midi)
+            self.engine.set_root(target_midi)
