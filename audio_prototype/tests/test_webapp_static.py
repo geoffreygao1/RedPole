@@ -61,6 +61,13 @@ def test_synth_mode_patch_labels_show_sound_bath_effects():
     assert "this.outputCellLabel(row, col)" in main_js
 
 
+def test_synth_wash_controls_default_to_seventy_percent():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+
+    assert '<input id="reverb-slider" type="range" min="0" max="1.5" step="0.01" value="1.05" />' in index_html
+    assert '<input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.7" />' in index_html
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 
