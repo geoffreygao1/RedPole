@@ -119,3 +119,35 @@ def test_synth_tab_connect_without_source_is_noop():
         assert eng.active_patches() == []
     finally:
         root.destroy()
+
+from synth_tab import (
+    SYNTH_GRID_SIZE as _GRID,
+    source_cell_at,
+    source_cell_center,
+    transform_cell_at,
+    transform_cell_center,
+)
+
+
+def test_source_cell_center_round_trips_through_cell_at():
+    for r in range(_GRID):
+        for c in range(_GRID):
+            cx, cy = source_cell_center(r, c)
+            assert source_cell_at(cx, cy) == (r, c)
+
+
+def test_transform_cell_center_round_trips_through_cell_at():
+    for r in range(_GRID):
+        for c in range(_GRID):
+            cx, cy = transform_cell_center(r, c)
+            assert transform_cell_at(cx, cy) == (r, c)
+
+
+def test_cell_at_returns_none_outside_grids():
+    assert source_cell_at(-50, -50) is None
+    assert transform_cell_at(0, 0) is None            # left of the transform grid
+    assert source_cell_at(*transform_cell_center(0, 0)) is None  # transform area is not source
+
+
+def test_source_grid_is_left_of_transform_grid():
+    assert source_cell_center(0, _GRID - 1)[0] < transform_cell_center(0, 0)[0]

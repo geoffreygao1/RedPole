@@ -368,7 +368,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `SYNTH_GRID_SIZE` (existing).
 - Produces: constants `SYNTH_CANVAS_W`, `SYNTH_CANVAS_H`, `SYNTH_CELL`, `SYNTH_JACK_RADIUS`, `SYNTH_SOURCE_ORIGIN`, `SYNTH_TRANSFORM_ORIGIN`, `SYNTH_PATCH_LIMIT`, `WAVEFORM_POINTS`; functions `source_cell_center(row,col)`, `transform_cell_center(row,col)`, `source_cell_at(x,y)`, `transform_cell_at(x,y)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_synth_tab.py
@@ -405,12 +405,12 @@ def test_source_grid_is_left_of_transform_grid():
     assert source_cell_center(0, _GRID - 1)[0] < transform_cell_center(0, 0)[0]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `py -3.11 -m pytest tests/test_synth_tab.py -k "cell_center or cell_at or left_of" -v`
 Expected: FAIL — `ImportError: cannot import name 'source_cell_center'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `synth_tab.py`, immediately after the `parse_bpm` function (and before the `import colorsys`/widget section), add:
 
@@ -460,12 +460,12 @@ def transform_cell_at(x, y):
     return _cell_at(SYNTH_TRANSFORM_ORIGIN, x, y)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `py -3.11 -m pytest tests/test_synth_tab.py -k "cell_center or cell_at or left_of" -v`
 Expected: PASS (4 tests). (The button-widget tests from the previous plan may still exist and will be replaced in Task 4 — ignore their state here; run only the `-k` subset.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_tab.py audio_prototype/tests/test_synth_tab.py

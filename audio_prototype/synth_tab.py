@@ -56,6 +56,51 @@ def parse_bpm(text):
     return float(min(BPM_MAX, max(BPM_MIN, bpm)))
 
 
+# ---- patch-bay geometry (pure; unit-tested without Tk) ----
+
+SYNTH_CANVAS_W = 980
+SYNTH_CANVAS_H = 380
+SYNTH_CELL = 56
+SYNTH_JACK_RADIUS = 9
+SYNTH_SOURCE_ORIGIN = (90, 60)       # (x, y) top-left of the source grid
+SYNTH_TRANSFORM_ORIGIN = (620, 60)   # (x, y) top-left of the transform grid
+SYNTH_PATCH_LIMIT = 25
+WAVEFORM_POINTS = 480
+VARIANT_LABELS = ("I", "II", "III", "IV", "V")   # per-column preset variant labels
+
+
+def _cell_center(origin, row, col):
+    ox, oy = origin
+    return (ox + col * SYNTH_CELL + SYNTH_CELL / 2, oy + row * SYNTH_CELL + SYNTH_CELL / 2)
+
+
+def _cell_at(origin, x, y):
+    ox, oy = origin
+    if x < ox or y < oy:
+        return None
+    col = int((x - ox) // SYNTH_CELL)
+    row = int((y - oy) // SYNTH_CELL)
+    if 0 <= row < SYNTH_GRID_SIZE and 0 <= col < SYNTH_GRID_SIZE:
+        return (row, col)
+    return None
+
+
+def source_cell_center(row, col):
+    return _cell_center(SYNTH_SOURCE_ORIGIN, row, col)
+
+
+def transform_cell_center(row, col):
+    return _cell_center(SYNTH_TRANSFORM_ORIGIN, row, col)
+
+
+def source_cell_at(x, y):
+    return _cell_at(SYNTH_SOURCE_ORIGIN, x, y)
+
+
+def transform_cell_at(x, y):
+    return _cell_at(SYNTH_TRANSFORM_ORIGIN, x, y)
+
+
 import colorsys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
