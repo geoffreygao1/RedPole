@@ -74,3 +74,81 @@ def test_render_exception_yields_silent_block(monkeypatch):
     monkeypatch.setattr(eng.engine, "generate_block", boom)
     block = eng.generate_block(512)
     np.testing.assert_allclose(block, np.zeros(512))
+
+
+def _fake_stream_factory(events):
+    class FakeStream:
+        def __init__(self, **kwargs):
+            events.append(("init", kwargs["channels"]))
+            self.callback = kwargs["callback"]
+
+        def start(self):
+            events.append(("start",))
+
+        def stop(self):
+            events.append(("stop",))
+
+        def close(self):
+            events.append(("close",))
+
+    return FakeStream
+
+
+def test_starts_paused_and_opens_no_stream(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
+    )
+    eng = SynthAudioEngine(seed=1)
+    assert eng.paused is True
+    eng.start()  # start() while paused should not begin playback
+    assert ("start",) not in events
+
+
+def test_resume_opens_and_starts_stream(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
+    )
+    eng = SynthAudioEngine(seed=1)
+    eng.resume()
+    assert eng.paused is False
+    assert ("init", 2) in events
+    assert events.count(("start",)) == 1
+
+
+def test_pause_stops_without_closing(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
+    )
+    eng = SynthAudioEngine(seed=1)
+    eng.resume()
+    eng.pause()
+    assert eng.paused is True
+    assert ("stop",) in events
+    assert ("close",) not in events
+
+
+def test_stop_closes_stream(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
+    )
+    eng = SynthAudioEngine(seed=1)
+    eng.resume()
+    eng.stop()
+    assert ("close",) in events
+
+
+def test_callback_fills_outdata_stereo(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        "synth_audio_engine.sd.OutputStream", _fake_stream_factory(events)
+    )
+    eng = SynthAudioEngine(seed=1)
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2")
+    out = np.zeros((256, 2), dtype=np.float32)
+    eng._callback(out, 256, None, None)
+    assert out.shape == (256, 2)
+    np.testing.assert_array_equal(out[:, 0], out[:, 1])

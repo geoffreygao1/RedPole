@@ -403,7 +403,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `sounddevice` (`sd.OutputStream`), the Task 2 class.
 - Produces: `.start()`, `.stop()`, `.pause()`, `.resume()`, `.paused -> bool`, `._callback(outdata, frames, time_info, status)`. `resume()` lazily opens the stream on first call so no stream is opened until the Synth tab is actually shown.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_synth_audio_engine.py
@@ -487,12 +487,12 @@ def test_callback_fills_outdata_stereo(monkeypatch):
     np.testing.assert_array_equal(out[:, 0], out[:, 1])
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -k "stream or resume or pause or stop or callback" -v`
 Expected: FAIL — `AttributeError: 'SynthAudioEngine' object has no attribute 'resume'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append these methods to the `SynthAudioEngine` class in `synth_audio_engine.py`:
 
@@ -538,12 +538,12 @@ Append these methods to the `SynthAudioEngine` class in `synth_audio_engine.py`:
             self._stream = None
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -v`
 Expected: PASS (13 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_audio_engine.py audio_prototype/tests/test_synth_audio_engine.py

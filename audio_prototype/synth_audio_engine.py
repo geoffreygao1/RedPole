@@ -77,3 +77,43 @@ class SynthAudioEngine:
     def generate_stereo_block(self, frames):
         mono = self.generate_block(frames)
         return np.column_stack([mono, mono]).astype(np.float32)
+
+    # ---------- stream lifecycle ----------
+
+    @property
+    def paused(self):
+        return self._paused
+
+    def _open_stream(self):
+        self._stream = sd.OutputStream(
+            samplerate=self.samplerate,
+            blocksize=self.blocksize,
+            channels=2,
+            callback=self._callback,
+        )
+
+    def _callback(self, outdata, frames, time_info, status):
+        outdata[:, :] = self.generate_stereo_block(frames)
+
+    def start(self):
+        if self._stream is None:
+            self._open_stream()
+        if not self._paused:
+            self._stream.start()
+
+    def resume(self):
+        self._paused = False
+        if self._stream is None:
+            self._open_stream()
+        self._stream.start()
+
+    def pause(self):
+        self._paused = True
+        if self._stream is not None:
+            self._stream.stop()
+
+    def stop(self):
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
