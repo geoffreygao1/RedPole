@@ -37,7 +37,7 @@ export class Scheduler {
     this.engine = engine;
     this.Tone = tone;
     this.seed = seed;
-    this.rootMidi = 48;
+    this.rootMidi = 36;
     this.field = new HarmonicField(this.rootMidi);
     this.allocator = new PitchAllocator(this.field);
     this.conductor = new VoiceConductor({ seed, minPeriod: 20, maxPeriod: 90, smoothTau: 1.2 });

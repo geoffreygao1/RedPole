@@ -1,4 +1,4 @@
-import { Scheduler } from "./scheduler.js?v=20260723-root-note-scale";
+import { Scheduler } from "./scheduler.js?v=20260723-low-root-default";
 import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,
@@ -150,7 +150,7 @@ function midiToPitchClassName(midi) {
 }
 
 function rootMidiFromPitchClass(pitchClass) {
-  return 48 + Math.round(pitchClass);
+  return 36 + Math.round(pitchClass);
 }
 
 function formatTranspose(value) {

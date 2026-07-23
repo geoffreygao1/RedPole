@@ -121,11 +121,12 @@ def test_root_knob_controls_integer_note_names_not_raw_midi_numbers():
     assert '<input id="root-slider" type="range" min="0" max="11" step="1" value="0"' in index_html
     assert "const NOTE_NAMES =" in main_js
     assert "rootMidiFromPitchClass" in main_js
-    assert "48 + Math.round(pitchClass)" in main_js
+    assert "36 + Math.round(pitchClass)" in main_js
     assert "midiToPitchClassName(value)" in main_js
     assert 'output.textContent = midiToPitchClassName(value);' in main_js
     assert "this.scheduler.setRoot(rootMidiFromPitchClass(e.target.value));" in main_js
     assert "this.scheduler.setRoot(rootMidiFromPitchClass(this.rootSlider.value));" in main_js
+    assert "this.rootMidi = 36;" in (ROOT / "webapp" / "scheduler.js").read_text()
     assert '`MIDI ${Math.round(value)}`' not in main_js
     assert "Math.floor(rounded / 12) - 1" not in main_js
 
@@ -174,6 +175,7 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
     assert 'href="style.css?v=20260723-knob-root-transpose"' in index_html
     assert 'src="main.js?v=20260723-knob-root-transpose"' in index_html
+    assert 'from "./scheduler.js?v=20260723-low-root-default"' in main_js
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
     assert '<canvas id="patch-canvas" width="672" height="314"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
