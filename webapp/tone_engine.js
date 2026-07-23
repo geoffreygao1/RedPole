@@ -98,7 +98,8 @@ export class ToneEngine {
 
   setTranspose(semitones) {
     if (!this.transpose) return;
-    rampParam(this.transpose.pitch, clamp(semitones, -12, 12), 0.18);
+    // Tone 14.7.77 exposes PitchShift.pitch as a numeric property, not a Param.
+    this.transpose.pitch = clamp(semitones, -12, 12);
   }
 
   async resume() {
