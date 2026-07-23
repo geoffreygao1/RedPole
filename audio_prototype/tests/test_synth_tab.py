@@ -65,3 +65,57 @@ def test_parse_bpm_clamps_and_rejects_garbage():
     assert parse_bpm("9000") == BPM_MAX
     assert parse_bpm("not a number") is None
     assert parse_bpm("") is None
+
+
+import tkinter as tk
+
+import pytest
+
+from synth_audio_engine import SynthAudioEngine
+from synth_tab import SYNTH_GRID_SIZE, SynthTab
+
+
+def _tk_root_or_skip():
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display available for Tk widget test")
+    root.withdraw()
+    return root
+
+
+def test_synth_tab_builds_two_grids_of_buttons():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        assert len(tab.source_cells) == SYNTH_GRID_SIZE * SYNTH_GRID_SIZE
+        assert len(tab.transform_cells) == SYNTH_GRID_SIZE * SYNTH_GRID_SIZE
+    finally:
+        root.destroy()
+
+
+def test_synth_tab_connect_adds_a_patch():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        tab._select_source(0, 1)          # additive_2
+        tab.bpm_var.set("90")
+        tab._on_connect()
+        assert len(eng.active_patches()) == 1
+        assert eng.active_patches()[0]["source_preset"] == "additive_2"
+    finally:
+        root.destroy()
+
+
+def test_synth_tab_connect_without_source_is_noop():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        tab.bpm_var.set("90")
+        tab._on_connect()  # no source selected
+        assert eng.active_patches() == []
+    finally:
+        root.destroy()

@@ -849,7 +849,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `tkinter`/`ttk`, `matplotlib`, `colorsys`, the Task 5 helpers, `gui._picker_coords_to_hsv`/`_random_scan_values`/`PICKER_W`/`PICKER_H` (module-level import — `gui` imports `synth_tab` only lazily, so no cycle), `synth_audio_engine.SynthAudioEngine` (passed in, not imported).
 - Produces: `class SynthTab(parent, synth_engine)` that builds the full Synth-tab UI into `parent` and starts its own waveform-refresh `after` loop. Exposes `.frame` (the container), `.selected_source`, `.selected_transform`, `.refresh_ms`, and calls `synth_engine.connect_patch/disconnect_patch/load_sample/set_root_midi`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_synth_tab.py
@@ -907,12 +907,12 @@ def test_synth_tab_connect_without_source_is_noop():
         root.destroy()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_synth_tab.py -k widget -v` (and the three new tests)
 Expected: FAIL — `ImportError: cannot import name 'SynthTab'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Append to `synth_tab.py`:
 
@@ -1205,12 +1205,12 @@ class SynthTab:
         self.parent.after(self.refresh_ms, self._schedule_refresh)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_synth_tab.py -v`
 Expected: PASS (9 tests total; the 3 Tk widget tests run on a machine with a display and `skip` headless).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_tab.py audio_prototype/tests/test_synth_tab.py
