@@ -1,4 +1,5 @@
 import numpy as np
+from types import SimpleNamespace
 
 from soundscape_color import calibrate_color
 from soundscape_harmony import HarmonicField, PitchAllocator
@@ -159,6 +160,34 @@ def test_resonant_ring_is_not_prematurely_zeroed():
     next_block = src.render(1, assignment, 40.0, 1024, RESONANT_PRESETS[0])
     # immediately after a pulse the resonator is still ringing well above 1e-6
     assert float(np.max(np.abs(next_block))) > 1e-6
+
+
+def _res_assignment():
+    field = HarmonicField(root_midi=48)
+    return PitchAllocator(field).allocate(1, np.random.default_rng(1), 0.1, "foreground")
+
+
+def _count_onsets(src, frames_total=88200, block=1024, bpm=120.0):
+    a = _res_assignment()
+    preset = {"id": "resonant_1", "interval_semitones": (0,), "decay": 0.9975, "excite_gain": 0.6}
+    prev = 0.0
+    onsets = 0
+    n = 0
+    while n < frames_total:
+        out = src.render(1, a, bpm, block, preset)
+        # an onset is a sharp jump above a threshold from near-silence
+        for v in np.abs(out):
+            if v > 0.05 and prev <= 0.05:
+                onsets += 1
+            prev = v
+        n += block
+    return onsets
+
+
+def test_larger_pulse_beats_gives_fewer_onsets():
+    fast = ResonantPulseSource(44100, seed=1, pulse_beats=1.0)
+    slow = ResonantPulseSource(44100, seed=1, pulse_beats=3.0)
+    assert _count_onsets(slow) < _count_onsets(fast)
 
 from soundscape_sources import NOISE_PRESETS, FilteredNoiseSource
 

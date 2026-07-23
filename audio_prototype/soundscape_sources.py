@@ -186,10 +186,11 @@ class ResonantPulseSource:
     per-sample Python loop -- acceptable for Phase 1's desktop-only,
     ~8-voice budget; revisit before any browser/Pyodide port."""
 
-    def __init__(self, samplerate, seed=None):
+    def __init__(self, samplerate, seed=None, pulse_beats=3.0):
         self.samplerate = samplerate
         self._voices = {}
         self._rng_seed = seed
+        self.pulse_beats = float(pulse_beats)
 
     def render(self, vid, assignment, bpm, frames, preset):
         intervals = preset["interval_semitones"]
@@ -210,7 +211,7 @@ class ResonantPulseSource:
         a1 = 2.0 * decay * np.cos(w)
         a2 = -(decay ** 2)
 
-        pulse_interval = max(1, int(self.samplerate * 60.0 / max(20.0, bpm)))
+        pulse_interval = max(1, int(self.samplerate * 60.0 / max(20.0, bpm) * self.pulse_beats))
         out = np.zeros(frames, dtype=np.float64)
         y1, y2 = voice["y1"], voice["y2"]
         rng = voice["rng"]
