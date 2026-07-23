@@ -45,8 +45,10 @@ def test_grid_rows_map_to_declared_engines():
         assert row_ids == by_engine[engine]
 
 
-def test_root_note_choices_include_default_d4():
-    assert ("D4", 62) in ROOT_NOTE_CHOICES
+def test_root_note_choices_span_c2_to_c4():
+    assert ROOT_NOTE_CHOICES[0] == ("C2", 36)
+    assert ROOT_NOTE_CHOICES[-1] == ("C4", 60)   # C4 is the ceiling
+    assert ("C3", 48) in ROOT_NOTE_CHOICES        # default root sits mid-range
     for label, midi in ROOT_NOTE_CHOICES:
         assert isinstance(label, str)
         assert isinstance(midi, int)

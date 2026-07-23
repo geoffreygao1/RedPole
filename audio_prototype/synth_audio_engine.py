@@ -21,7 +21,7 @@ VISUALIZER_BUFFER_SECONDS = 2.0
 
 
 class SynthAudioEngine:
-    def __init__(self, samplerate=44100, blocksize=2048, seed=None, root_midi=62):
+    def __init__(self, samplerate=44100, blocksize=2048, seed=None, root_midi=48):
         self.samplerate = samplerate
         self.blocksize = blocksize
         self._seed = seed

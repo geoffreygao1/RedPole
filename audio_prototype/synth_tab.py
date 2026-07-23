@@ -40,7 +40,7 @@ def _midi_label(midi):
     return f"{_NOTE_NAMES[midi % 12]}{midi // 12 - 1}"
 
 
-ROOT_NOTE_CHOICES = [(_midi_label(m), m) for m in range(48, 85)]  # C3..C6
+ROOT_NOTE_CHOICES = [(_midi_label(m), m) for m in range(36, 61)]  # C2..C4
 
 
 def parse_bpm(text):

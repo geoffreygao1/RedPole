@@ -37,7 +37,7 @@ class HarmonicField:
     Phase 4 plan will make root_midi/tension_enabled evolve over time
     (spec 6.7's HarmonicState); for Phase 1 it is fixed at construction."""
 
-    def __init__(self, root_midi=62, tension_enabled=True):
+    def __init__(self, root_midi=48, tension_enabled=True):
         self.root_midi = int(root_midi)
         self.tension_enabled = tension_enabled
 

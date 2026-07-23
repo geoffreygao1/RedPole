@@ -28,7 +28,7 @@ class SoundscapePatch:
 
 
 class SoundscapeEngine:
-    def __init__(self, samplerate=44100, seed=None, root_midi=62):
+    def __init__(self, samplerate=44100, seed=None, root_midi=48):
         self.samplerate = samplerate
         self.field = HarmonicField(root_midi=root_midi)
         self.allocator = PitchAllocator(self.field)
