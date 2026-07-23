@@ -148,6 +148,7 @@ def test_deployed_assets_are_cache_busted_from_index_to_worker():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
     assert 'src="main.js?v=' in index_html
+    assert 'from "./tone_engine.js?v=' in main_js
     assert "const APP_ASSET_VERSION = Date.now().toString();" in main_js
     assert 'new Worker(`worker.js?v=${APP_ASSET_VERSION}`)' in main_js
     assert 'addModule(`worklet.js?v=${APP_ASSET_VERSION}`)' in main_js

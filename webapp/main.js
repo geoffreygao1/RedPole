@@ -1,5 +1,5 @@
 import { Scheduler } from "./scheduler.js";
-import { ToneEngine } from "./tone_engine.js";
+import { ToneEngine } from "./tone_engine.js?v=20260723-sample-base-url";
 import {
   MACRO_COLS,
   MACRO_ROWS,
