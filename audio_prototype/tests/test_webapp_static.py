@@ -97,9 +97,9 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert '<option value="happy">Happy</option>' in index_html
     assert '<option value="mysterious">Mysterious</option>' in index_html
     assert '<option value="melancholy">Melancholy</option>' in index_html
-    assert '<option value="scale:c:major">C Major</option>' in index_html
-    assert '<option value="scale:c:minor">C Minor</option>' in index_html
-    assert '<option value="scale:fs:minor">F# Minor</option>' in index_html
+    assert '<option value="scale:major">Major</option>' in index_html
+    assert '<option value="scale:minor">Minor</option>' in index_html
+    assert '<option value="scale:fs:minor">' not in index_html
     assert "this.moodSelect = document.getElementById(\"mood-select\");" in main_js
     assert "this.scheduler.setMood(this.moodSelect.value);" in main_js
     assert "this.scheduler?.setMood(e.target.value);" in main_js
@@ -109,6 +109,17 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert "opacity: 0;" in style_css
     assert ".knob-control::before" in style_css
     assert ".knob-control input[type=\"range\"] {" in style_css
+
+
+def test_root_knob_controls_integer_note_names_not_raw_midi_numbers():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert '<input id="root-slider" type="range" min="36" max="60" step="1" value="48"' in index_html
+    assert "const NOTE_NAMES =" in main_js
+    assert "midiToNoteName(value)" in main_js
+    assert 'output.textContent = midiToNoteName(value);' in main_js
+    assert '`MIDI ${Math.round(value)}`' not in main_js
 
 
 def test_midi_knobs_use_vertical_pointer_drag_not_native_horizontal_range():
@@ -131,13 +142,14 @@ def test_harmony_palettes_include_clickbath_style_major_minor_scales():
     harmony_js = (ROOT / "webapp" / "generative" / "harmony.js").read_text()
     scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
 
-    assert "export const SCALE_ROOT_OFFSETS" in harmony_js
     assert "major: { root: 0, third: 4, fifth: 7, sixth: 9 }" in harmony_js
     assert "minor: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 }" in harmony_js
-    assert 'const [, root, quality] = /^scale:([a-g]s?):(major|minor)$/.exec(id) ?? [];' in harmony_js
-    assert "rootOffset + interval" in harmony_js
+    assert 'if (id === "scale:major")' in harmony_js
+    assert 'if (id === "scale:minor")' in harmony_js
+    assert "SCALE_ROOT_OFFSETS" not in harmony_js
+    assert "rootOffset + interval" not in harmony_js
     assert "paletteForId(mood)" in harmony_js
-    assert 'from "./generative/harmony.js?v=20260723-scale-palettes"' in scheduler_js
+    assert 'from "./generative/harmony.js?v=20260723-root-note-scale"' in scheduler_js
 
 
 def test_patch_bay_arrays_and_knobs_have_balanced_layout():
@@ -150,15 +162,16 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-vertical-knobs"' in index_html
-    assert 'src="main.js?v=20260723-vertical-knobs"' in index_html
+    assert 'href="style.css?v=20260723-root-note-scale"' in index_html
+    assert 'src="main.js?v=20260723-root-note-scale"' in index_html
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
-    assert '<canvas id="patch-canvas" width="740" height="330"></canvas>' in index_html
+    assert '<canvas id="patch-canvas" width="680" height="306"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
     assert "justify-items: center;" in style_css
-    assert "grid-template-columns: 220px 176px 778px;" in style_css
+    assert "grid-template-columns: 220px 176px 718px;" in style_css
     assert "#scan-input {\n  width: 220px;" in style_css
-    assert "#patch-bay {\n  width: 778px;" in style_css
+    assert "#patch-bay {\n  width: 718px;" in style_css
+    assert "height: 500px;" in style_css
     assert "transform: rotate(var(--knob-angle))" not in style_css
 
 
@@ -336,12 +349,12 @@ def test_sources_are_left_of_patch_bay_and_drag_routed_explicitly():
 
     style_css = (ROOT / "webapp" / "style.css").read_text()
     assert "#app" in style_css
-    assert "grid-template-columns: 220px 176px 778px;" in style_css
+    assert "grid-template-columns: 220px 176px 718px;" in style_css
     assert "flex-wrap" not in style_css
     assert "#sources" in style_css
     assert "width: 176px;" in style_css
     assert "#patch-bay" in style_css
-    assert "width: 778px;" in style_css
+    assert "width: 718px;" in style_css
     assert "white-space: nowrap;" in style_css
     assert 'removeButton.textContent = "\\u00d7";' in main_js
     assert 'removeButton.className = "icon-button";' in main_js

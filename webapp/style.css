@@ -11,7 +11,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: 220px 176px 778px;
+  grid-template-columns: 220px 176px 718px;
   gap: 16px;
   align-items: flex-start;
 }
@@ -75,11 +75,11 @@ section h3 {
 }
 
 #patch-bay {
-  width: 778px;
+  width: 718px;
+  height: 500px;
 }
 
 #scan-input,
-#patch-bay,
 #sources {
   height: 460px;
 }

@@ -1,5 +1,5 @@
 import { VoiceConductor } from "./generative/conductor.js";
-import { HarmonicField } from "./generative/harmony.js?v=20260723-scale-palettes";
+import { HarmonicField } from "./generative/harmony.js?v=20260723-root-note-scale";
 import { PitchAllocator } from "./generative/allocator.js?v=20260723-trigger-families";
 import { mulberry32 } from "./generative/rng.js";
 

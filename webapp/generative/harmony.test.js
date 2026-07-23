@@ -37,8 +37,8 @@ test("harmonic field can switch clickbath-derived mood palettes", () => {
   assert.equal(f.midiForRole("second"), 50);
   assert.equal(f.midiForRole("sixth"), 57);
   f.setMood("mysterious");
-  assert.equal(f.midiForRole("root"), 54);
-  assert.equal(f.midiForRole("minorThird"), 57);
+  assert.equal(f.midiForRole("root"), 48);
+  assert.equal(f.midiForRole("minorThird"), 51);
   f.setMood("melancholy");
   assert.equal(f.midiForRole("minorThird"), 51);
   assert.equal(f.midiForRole("second"), 50);
@@ -46,16 +46,13 @@ test("harmonic field can switch clickbath-derived mood palettes", () => {
 });
 
 test("harmonic field can use clickbath-style root major and minor scales", () => {
-  const cMajor = paletteForId("scale:c:major");
-  assert.deepEqual(cMajor.semitones, { root: 0, third: 4, fifth: 7, sixth: 9 });
+  const major = paletteForId("scale:major");
+  assert.deepEqual(major.semitones, { root: 0, third: 4, fifth: 7, sixth: 9 });
 
-  const dMajor = paletteForId("scale:d:major");
-  assert.deepEqual(dMajor.semitones, { root: 2, third: 6, fifth: 9, sixth: 11 });
+  const minor = paletteForId("scale:minor");
+  assert.deepEqual(minor.semitones, { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 });
 
-  const fsMinor = paletteForId("scale:fs:minor");
-  assert.deepEqual(fsMinor.semitones, { root: 6, minorThird: 9, fifth: 13, flatSixth: 14 });
-
-  const f = new HarmonicField(48, true, "scale:fs:minor");
+  const f = new HarmonicField(54, true, "scale:minor");
   assert.equal(f.midiForRole("root"), 54);
   assert.equal(f.midiForRole("flatSixth"), 62);
 });

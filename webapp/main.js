@@ -1,4 +1,4 @@
-import { Scheduler } from "./scheduler.js?v=20260723-vertical-knobs";
+import { Scheduler } from "./scheduler.js?v=20260723-root-note-scale";
 import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,
@@ -21,6 +21,7 @@ const APP_ASSET_VERSION = Date.now().toString();
 const JACK_RADIUS = 9;
 const PATCH_SOURCE_LIMIT = 25;
 const KNOB_DRAG_PIXELS = 120;
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
@@ -140,6 +141,12 @@ function drawJack(ctx, x, y, color) {
   ctx.fill();
   ctx.strokeStyle = "#888";
   ctx.stroke();
+}
+
+function midiToNoteName(midi) {
+  const rounded = Math.round(midi);
+  const pitchClass = ((rounded % 12) + 12) % 12;
+  return `${NOTE_NAMES[pitchClass]}${Math.floor(rounded / 12) - 1}`;
 }
 
 class App {
@@ -856,7 +863,7 @@ class App {
     const output = control.querySelector("output");
     if (!output) return;
     if (input.id === "root-slider") {
-      output.textContent = `MIDI ${Math.round(value)}`;
+      output.textContent = midiToNoteName(value);
     } else if (input.id === "transpose-slider") {
       output.textContent = `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
     } else {

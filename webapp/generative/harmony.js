@@ -13,8 +13,8 @@ export const HARMONIC_PALETTES = {
     weights: { root: 0.28, second: 0.12, third: 0.26, fifth: 0.22, sixth: 0.12 },
   },
   mysterious: {
-    // Clickbath mystery preset selects F# minor: F#, A, C#, D.
-    semitones: { root: 6, minorThird: 9, fifth: 13, flatSixth: 14 },
+    // Clickbath mystery uses a minor/flat-six color; Root supplies the key.
+    semitones: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 },
     weights: { root: 0.32, minorThird: 0.24, fifth: 0.24, flatSixth: 0.2 },
   },
   melancholy: {
@@ -22,20 +22,6 @@ export const HARMONIC_PALETTES = {
     semitones: { root: 0, second: 2, minorThird: 3, fifth: 7 },
     weights: { root: 0.34, second: 0.16, minorThird: 0.26, fifth: 0.24 },
   },
-};
-export const SCALE_ROOT_OFFSETS = {
-  c: 0,
-  cs: 1,
-  d: 2,
-  ds: 3,
-  e: 4,
-  f: 5,
-  fs: 6,
-  g: 7,
-  gs: 8,
-  a: 9,
-  as: 10,
-  b: 11,
 };
 const SCALE_INTERVALS = {
   major: { root: 0, third: 4, fifth: 7, sixth: 9 },
@@ -50,14 +36,13 @@ export const ROLE_WEIGHTS = HARMONIC_PALETTES.optimistic.weights;
 
 export function paletteForId(id) {
   if (HARMONIC_PALETTES[id]) return HARMONIC_PALETTES[id];
-  const [, root, quality] = /^scale:([a-g]s?):(major|minor)$/.exec(id) ?? [];
-  const rootOffset = SCALE_ROOT_OFFSETS[root];
-  if (rootOffset === undefined || !SCALE_INTERVALS[quality]) return HARMONIC_PALETTES.optimistic;
-  const semitones = {};
-  for (const [role, interval] of Object.entries(SCALE_INTERVALS[quality])) {
-    semitones[role] = rootOffset + interval;
+  if (id === "scale:major") {
+    return { semitones: SCALE_INTERVALS.major, weights: SCALE_WEIGHTS.major };
   }
-  return { semitones, weights: SCALE_WEIGHTS[quality] };
+  if (id === "scale:minor") {
+    return { semitones: SCALE_INTERVALS.minor, weights: SCALE_WEIGHTS.minor };
+  }
+  return HARMONIC_PALETTES.optimistic;
 }
 
 export function midiToHz(midi) {
