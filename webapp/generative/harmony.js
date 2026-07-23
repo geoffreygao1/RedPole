@@ -23,8 +23,42 @@ export const HARMONIC_PALETTES = {
     weights: { root: 0.34, second: 0.16, minorThird: 0.26, fifth: 0.24 },
   },
 };
+export const SCALE_ROOT_OFFSETS = {
+  c: 0,
+  cs: 1,
+  d: 2,
+  ds: 3,
+  e: 4,
+  f: 5,
+  fs: 6,
+  g: 7,
+  gs: 8,
+  a: 9,
+  as: 10,
+  b: 11,
+};
+const SCALE_INTERVALS = {
+  major: { root: 0, third: 4, fifth: 7, sixth: 9 },
+  minor: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 },
+};
+const SCALE_WEIGHTS = {
+  major: { root: 0.34, third: 0.24, fifth: 0.26, sixth: 0.16 },
+  minor: { root: 0.34, minorThird: 0.26, fifth: 0.24, flatSixth: 0.16 },
+};
 export const ROLE_SEMITONES = HARMONIC_PALETTES.optimistic.semitones;
 export const ROLE_WEIGHTS = HARMONIC_PALETTES.optimistic.weights;
+
+export function paletteForId(id) {
+  if (HARMONIC_PALETTES[id]) return HARMONIC_PALETTES[id];
+  const [, root, quality] = /^scale:([a-g]s?):(major|minor)$/.exec(id) ?? [];
+  const rootOffset = SCALE_ROOT_OFFSETS[root];
+  if (rootOffset === undefined || !SCALE_INTERVALS[quality]) return HARMONIC_PALETTES.optimistic;
+  const semitones = {};
+  for (const [role, interval] of Object.entries(SCALE_INTERVALS[quality])) {
+    semitones[role] = rootOffset + interval;
+  }
+  return { semitones, weights: SCALE_WEIGHTS[quality] };
+}
 
 export function midiToHz(midi) {
   return 440.0 * Math.pow(2.0, (midi - 69.0) / 12.0);
@@ -37,8 +71,9 @@ export class HarmonicField {
     this.setMood(mood);
   }
   setMood(mood) {
-    this.mood = HARMONIC_PALETTES[mood] ? mood : "optimistic";
-    this.palette = HARMONIC_PALETTES[this.mood];
+    const palette = paletteForId(mood);
+    this.mood = palette === HARMONIC_PALETTES.optimistic && mood !== "optimistic" ? "optimistic" : mood;
+    this.palette = palette;
   }
   roles() {
     const all = Object.keys(this.palette.weights);

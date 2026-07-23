@@ -97,6 +97,9 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert '<option value="happy">Happy</option>' in index_html
     assert '<option value="mysterious">Mysterious</option>' in index_html
     assert '<option value="melancholy">Melancholy</option>' in index_html
+    assert '<option value="scale:c:major">C Major</option>' in index_html
+    assert '<option value="scale:c:minor">C Minor</option>' in index_html
+    assert '<option value="scale:fs:minor">F# Minor</option>' in index_html
     assert "this.moodSelect = document.getElementById(\"mood-select\");" in main_js
     assert "this.scheduler.setMood(this.moodSelect.value);" in main_js
     assert "this.scheduler?.setMood(e.target.value);" in main_js
@@ -108,6 +111,35 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert ".knob-control input[type=\"range\"] {" in style_css
 
 
+def test_midi_knobs_use_vertical_pointer_drag_not_native_horizontal_range():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+    style_css = (ROOT / "webapp" / "style.css").read_text()
+
+    assert "this.knobDrag = null;" in main_js
+    assert "this.bindKnobDrag(input)" in main_js
+    assert 'input.addEventListener("pointerdown"' in main_js
+    assert 'input.addEventListener("pointermove"' in main_js
+    assert 'input.addEventListener("pointerup"' in main_js
+    assert "event.preventDefault();" in main_js
+    assert "this.knobValueForVerticalDrag" in main_js
+    assert "startY - clientY" in main_js
+    assert "new Event(\"input\", { bubbles: true })" in main_js
+    assert "touch-action: none;" in style_css
+
+
+def test_harmony_palettes_include_clickbath_style_major_minor_scales():
+    harmony_js = (ROOT / "webapp" / "generative" / "harmony.js").read_text()
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+
+    assert "export const SCALE_ROOT_OFFSETS" in harmony_js
+    assert "major: { root: 0, third: 4, fifth: 7, sixth: 9 }" in harmony_js
+    assert "minor: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 }" in harmony_js
+    assert 'const [, root, quality] = /^scale:([a-g]s?):(major|minor)$/.exec(id) ?? [];' in harmony_js
+    assert "rootOffset + interval" in harmony_js
+    assert "paletteForId(mood)" in harmony_js
+    assert 'from "./generative/harmony.js?v=20260723-scale-palettes"' in scheduler_js
+
+
 def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
@@ -117,9 +149,9 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const OUTPUT_GRID_X = 54;" in main_js
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
-    assert 'ctx.fillText("effects", PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 16, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-compact-patch-layout"' in index_html
-    assert 'src="main.js?v=20260723-compact-patch-layout"' in index_html
+    assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
+    assert 'href="style.css?v=20260723-vertical-knobs"' in index_html
+    assert 'src="main.js?v=20260723-vertical-knobs"' in index_html
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
     assert '<canvas id="patch-canvas" width="740" height="330"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css

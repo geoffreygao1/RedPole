@@ -1,4 +1,4 @@
-import { Scheduler } from "./scheduler.js?v=20260723-clickbath-moods";
+import { Scheduler } from "./scheduler.js?v=20260723-vertical-knobs";
 import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,
@@ -20,6 +20,7 @@ const OUTPUT_GRID_Y = 56;
 const APP_ASSET_VERSION = Date.now().toString();
 const JACK_RADIUS = 9;
 const PATCH_SOURCE_LIMIT = 25;
+const KNOB_DRAG_PIXELS = 120;
 // Matches desktop PATCH_ROW_ENGINES (audio_prototype/gui.py:44) -- row
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
@@ -168,6 +169,7 @@ class App {
     this.synthEngine = null;
     this.scheduler = null;
     this.synthReady = false;
+    this.knobDrag = null;
 
     this.statusEl = document.getElementById("status");
     this.appEl = document.getElementById("app");
@@ -194,7 +196,10 @@ class App {
     this.buildPicker();
     this.drawPicker();
     this.updateScanPreview();
-    this.knobControls.forEach((input) => this.syncKnobControl(input));
+    this.knobControls.forEach((input) => {
+      this.syncKnobControl(input);
+      this.bindKnobDrag(input);
+    });
     this.bindControls();
     this.drawPatchBay();
     this.init();
@@ -859,6 +864,56 @@ class App {
     }
   }
 
+  bindKnobDrag(input) {
+    input.addEventListener("pointerdown", (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      event.preventDefault();
+      input.focus();
+      this.knobDrag = {
+        input,
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startValue: parseFloat(input.value || "0"),
+      };
+      input.setPointerCapture?.(event.pointerId);
+    });
+    input.addEventListener("pointermove", (event) => {
+      if (!this.knobDrag || this.knobDrag.input !== input || this.knobDrag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      const value = this.knobValueForVerticalDrag(
+        input,
+        this.knobDrag.startValue,
+        this.knobDrag.startY,
+        event.clientY
+      );
+      this.setKnobValue(input, value);
+    });
+    const endDrag = (event) => {
+      if (!this.knobDrag || this.knobDrag.input !== input || this.knobDrag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      input.releasePointerCapture?.(event.pointerId);
+      this.knobDrag = null;
+    };
+    input.addEventListener("pointerup", endDrag);
+    input.addEventListener("pointercancel", endDrag);
+  }
+
+  knobValueForVerticalDrag(input, startValue, startY, clientY) {
+    const min = parseFloat(input.min || "0");
+    const max = parseFloat(input.max || "1");
+    const step = parseFloat(input.step || "0");
+    const delta = ((startY - clientY) / KNOB_DRAG_PIXELS) * (max - min);
+    const clamped = Math.min(max, Math.max(min, startValue + delta));
+    if (!Number.isFinite(step) || step <= 0) return clamped;
+    const stepped = min + Math.round((clamped - min) / step) * step;
+    return Math.min(max, Math.max(min, Number(stepped.toFixed(6))));
+  }
+
+  setKnobValue(input, value) {
+    input.value = String(value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
   drawPatchBay() {
     const ctx = this.patchCanvas.getContext("2d");
     const rowLabels = this.rowLabels();
@@ -869,7 +924,7 @@ class App {
     ctx.font = "12px sans-serif";
     ctx.textAlign = "left";
     ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);
-    ctx.fillText("effects", PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 16, PATCH_GRID_Y - 18);
+    ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);
 
     const outputColors = new Map();
     const outputLabels = new Map();

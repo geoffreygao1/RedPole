@@ -172,6 +172,7 @@ section h3 {
   border-radius: 50%;
   opacity: 0;
   cursor: pointer;
+  touch-action: none;
 }
 
 .knob-control::before {

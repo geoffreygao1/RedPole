@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>RedPole</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="style.css?v=20260723-compact-patch-layout" />
+  <link rel="stylesheet" href="style.css?v=20260723-vertical-knobs" />
 </head>
 <body>
   <div id="status">Loading audio engine...</div>
@@ -56,7 +56,40 @@
         <div class="patch-controls">
           <label class="patch-control knob-control"><span>Wet/Dry</span><input id="wet-dry-slider" type="range" min="0" max="1" step="0.01" value="0.5" /><output>50%</output></label>
           <label class="patch-control knob-control"><span>Root</span><input id="root-slider" type="range" min="36" max="60" step="0.01" value="48" /><output>C3</output></label>
-          <label class="patch-control select-control"><span>Mood</span><select id="mood-select"><option value="optimistic">Optimistic</option><option value="happy">Happy</option><option value="mysterious">Mysterious</option><option value="melancholy">Melancholy</option></select></label>
+          <label class="patch-control select-control"><span>Mood/Scale</span><select id="mood-select">
+            <optgroup label="Moods">
+              <option value="optimistic">Optimistic</option>
+              <option value="happy">Happy</option>
+              <option value="mysterious">Mysterious</option>
+              <option value="melancholy">Melancholy</option>
+            </optgroup>
+            <optgroup label="Scales">
+              <option value="scale:c:major">C Major</option>
+              <option value="scale:c:minor">C Minor</option>
+              <option value="scale:cs:major">C# Major</option>
+              <option value="scale:cs:minor">C# Minor</option>
+              <option value="scale:d:major">D Major</option>
+              <option value="scale:d:minor">D Minor</option>
+              <option value="scale:ds:major">D# Major</option>
+              <option value="scale:ds:minor">D# Minor</option>
+              <option value="scale:e:major">E Major</option>
+              <option value="scale:e:minor">E Minor</option>
+              <option value="scale:f:major">F Major</option>
+              <option value="scale:f:minor">F Minor</option>
+              <option value="scale:fs:major">F# Major</option>
+              <option value="scale:fs:minor">F# Minor</option>
+              <option value="scale:g:major">G Major</option>
+              <option value="scale:g:minor">G Minor</option>
+              <option value="scale:gs:major">G# Major</option>
+              <option value="scale:gs:minor">G# Minor</option>
+              <option value="scale:a:major">A Major</option>
+              <option value="scale:a:minor">A Minor</option>
+              <option value="scale:as:major">A# Major</option>
+              <option value="scale:as:minor">A# Minor</option>
+              <option value="scale:b:major">B Major</option>
+              <option value="scale:b:minor">B Minor</option>
+            </optgroup>
+          </select></label>
           <label class="patch-control knob-control"><span>Reverb</span><input id="reverb-slider" type="range" min="0" max="1.5" step="0.01" value="0.6" /><output>40%</output></label>
           <label class="patch-control knob-control"><span>Delay</span><input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.45" /><output>45%</output></label>
           <label class="patch-control knob-control"><span>Transpose</span><input id="transpose-slider" type="range" min="-12" max="12" step="0.01" value="0" /><output>0</output></label>
@@ -72,6 +105,6 @@
   </div>
 
   <script src="vendor/tone.js?v=14.7.77"></script>
-  <script type="module" src="main.js?v=20260723-compact-patch-layout"></script>
+  <script type="module" src="main.js?v=20260723-vertical-knobs"></script>
 </body>
 </html>
