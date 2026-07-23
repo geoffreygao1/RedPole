@@ -7,6 +7,7 @@ throughout audio_prototype (soundscape_voices.sync_voices).
 
 import numpy as np
 
+from modulation import soft_clip
 from soundscape_color import calibrate_color
 from soundscape_harmony import midi_to_hz
 from soundscape_instruments import INSTRUMENT_PRESETS, InstrumentBank, InstrumentSource
@@ -186,11 +187,21 @@ class ResonantPulseSource:
     per-sample Python loop -- acceptable for Phase 1's desktop-only,
     ~8-voice budget; revisit before any browser/Pyodide port."""
 
-    def __init__(self, samplerate, seed=None, pulse_beats=3.0):
+    def __init__(self, samplerate, seed=None, pulse_beats=3.0, excite_ms=4.0):
         self.samplerate = samplerate
         self._voices = {}
         self._rng_seed = seed
         self.pulse_beats = float(pulse_beats)
+        # Spread each excitation over a short raised-cosine burst instead of a
+        # single-sample impulse, so onsets don't click. The window sums to 1 so
+        # total injected energy matches the old impulse. excite_ms=0 -> impulse.
+        self._burst_len = max(1, int(excite_ms * 0.001 * samplerate))
+        if self._burst_len > 1:
+            win = np.hanning(self._burst_len)
+            total = float(win.sum())
+            self._burst_win = win / total if total > 0 else np.ones(self._burst_len)
+        else:
+            self._burst_win = np.ones(1, dtype=np.float64)
 
     def render(self, vid, assignment, bpm, frames, preset):
         intervals = preset["interval_semitones"]
@@ -203,6 +214,8 @@ class ResonantPulseSource:
                 "next_pulse": 0,
                 "y1": np.zeros(n_res),
                 "y2": np.zeros(n_res),
+                "excite_pos": self._burst_len,   # >= burst_len == inactive
+                "pending": 0.0,
             }
             self._voices[vid] = voice
         freqs = np.array([midi_to_hz(assignment.midi + s) for s in intervals])
@@ -221,27 +234,37 @@ class ResonantPulseSource:
         # ms. When no pulse fires this block and the state has fully decayed,
         # skip the per-sample loop -- the samples it would produce are already
         # below 1e-6, so returning exact zeros is behaviour-preserving.
+        burst_len = self._burst_len
+        burst_win = self._burst_win
+        excite_pos = voice["excite_pos"]
+        pending = voice["pending"]
         rung_out = max(
             float(np.max(np.abs(y1))), float(np.max(np.abs(y2)))
         ) < 1e-6
-        if next_pulse >= frames and rung_out:
+        if next_pulse >= frames and rung_out and excite_pos >= burst_len:
             voice["next_pulse"] = next_pulse - frames
             return out
         for i in range(frames):
-            excite = 0.0
             if next_pulse <= 0:
-                excite = preset["excite_gain"] * float(rng.uniform(0.6, 1.0))
+                pending = preset["excite_gain"] * float(rng.uniform(0.6, 1.0))
+                excite_pos = 0
                 next_pulse = pulse_interval
+            excite = 0.0
+            if excite_pos < burst_len:
+                excite = pending * burst_win[excite_pos]
+                excite_pos += 1
             next_pulse -= 1
             y0 = a1 * y1 + a2 * y2 + excite
             out[i] = np.sum(y0) / n_res
             y2 = y1
             y1 = y0
         voice["y1"], voice["y2"], voice["next_pulse"] = y1, y2, next_pulse
-        peak = np.max(np.abs(out))
-        if peak > 1.0:
-            out /= peak
-        return out
+        voice["excite_pos"], voice["pending"] = excite_pos, pending
+        # Smooth saturation instead of a per-block peak normalize: soft_clip is
+        # memoryless, so (unlike dividing each block by its own peak) it can't
+        # step the gain at block boundaries -- that boundary step was itself a
+        # click source. The windowed excitation above softens the onset.
+        return np.asarray(soft_clip(out), dtype=np.float64)
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)
@@ -254,6 +277,12 @@ GRANULAR_PRESETS = [
     {"id": "granular_4", "grain_ms": 120, "density_hz": 4, "spread_ms": 90},
     {"id": "granular_5", "grain_ms": 70, "density_hz": 8, "spread_ms": 200},
 ]
+
+# Fixed, block-consistent output gain for the grain cloud. Replaces the old
+# per-block peak normalize (which jumped the gain at block boundaries -> clicks,
+# and pinned granular at full scale -> drove the mix into soft-clip). Peaks are
+# now caught smoothly by the engine's RmsLimiter/soft_clip downstream.
+GRANULAR_GAIN = 0.6
 
 
 class GranularCloudSource:
@@ -272,7 +301,8 @@ class GranularCloudSource:
         voice = self._voices.get(vid)
         if voice is None:
             table = self.seeds.table(int(round(timbre["brightness"] * (len(self.seeds) - 1))))
-            voice = {"table": table, "window_pos": 0.0, "next_grain": 0, "grains": []}
+            voice = {"table": table, "window_pos": 0.0, "next_grain": 0, "grains": [],
+                     "dc_x1": 0.0, "dc_y1": 0.0}
             self._voices[vid] = voice
         table = voice["table"]
         n = len(table)
@@ -300,10 +330,21 @@ class GranularCloudSource:
             voice["grains"] = [g for g in voice["grains"] if g["pos"] < grain_len]
             voice["next_grain"] -= step
             t += step
-        peak = np.max(np.abs(out))
-        if peak > 1.0:
-            out /= peak
-        return out
+        # Gentle DC-block highpass (~7 Hz) to shed the sub-sonic overlap-add
+        # buildup that eats headroom, while preserving the musical bass. Then a
+        # fixed gain (no per-block normalize) keeps the level steady across
+        # block boundaries so grains don't click.
+        r = 0.999
+        x1 = voice["dc_x1"]
+        y1 = voice["dc_y1"]
+        for i in range(frames):
+            yi = out[i] - x1 + r * y1
+            x1 = out[i]
+            y1 = yi
+            out[i] = yi
+        voice["dc_x1"] = x1
+        voice["dc_y1"] = y1
+        return out * GRANULAR_GAIN
 
     def sync(self, active_ids):
         sync_voices(self._voices, active_ids)

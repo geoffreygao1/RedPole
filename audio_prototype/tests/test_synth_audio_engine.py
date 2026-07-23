@@ -43,8 +43,8 @@ def test_set_reverb_and_delay_reach_the_wash():
     eng.set_delay(0.4)
     assert abs(eng.engine.wash.reverb_amount - 0.7) < 1e-9
     assert abs(eng.engine.wash.delay_amount - 0.4) < 1e-9
-    eng.set_reverb(5.0)                        # clamped
-    assert eng.engine.wash.reverb_amount == 1.0
+    eng.set_reverb(5.0)                        # clamped to the wash max
+    assert eng.engine.wash.reverb_amount == 1.5
 
 
 def test_active_patches_snapshot_shape():

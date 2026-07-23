@@ -189,6 +189,28 @@ def test_larger_pulse_beats_gives_fewer_onsets():
     slow = ResonantPulseSource(44100, seed=1, pulse_beats=3.0)
     assert _count_onsets(slow) < _count_onsets(fast)
 
+
+def test_excitation_window_reduces_onset_click():
+    # A single-sample impulse (excite_ms=0) jumps hard at each onset; spreading
+    # it over a short window should shrink the largest sample-to-sample step.
+    def max_step(excite_ms):
+        src = ResonantPulseSource(44100, seed=1, pulse_beats=1.0, excite_ms=excite_ms)
+        a = _res_assignment()
+        preset = {"id": "resonant_1", "interval_semitones": (0,), "decay": 0.9975, "excite_gain": 0.7}
+        out = np.concatenate([src.render(1, a, 120.0, 1024, preset) for _ in range(20)])
+        return float(np.max(np.abs(np.diff(out))))
+
+    assert max_step(4.0) < max_step(0.0)
+
+
+def test_granular_is_headroom_safe_and_dc_free():
+    src = GranularCloudSource(44100, seed=2)
+    timbre = calibrate_color(0.03, 0.68, 0.94)
+    total = np.concatenate([src.render(1, timbre, 90.0, 1024, GRANULAR_PRESETS[1]) for _ in range(40)])
+    assert not np.any(np.isnan(total))
+    assert np.max(np.abs(total)) < 0.95            # not pinned at full-scale -> no mix clipping
+    assert abs(float(np.mean(total))) < 0.02       # DC-blocked (no low-freq offset eating headroom)
+
 from soundscape_sources import NOISE_PRESETS, FilteredNoiseSource
 
 

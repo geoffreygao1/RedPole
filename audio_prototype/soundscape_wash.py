@@ -43,17 +43,24 @@ class FeedbackDelay:
 
 
 class SoundscapeWash:
+    # The reverb slider goes past unity so the top end is extra washy: the wet
+    # level rises to 1.5x and the comb feedback (decay length) lengthens with it.
+    REVERB_MAX = 1.5
+
     def __init__(self, samplerate, reverb_amount=0.35, delay_amount=0.2):
         self.samplerate = samplerate
         self.reverb = SchroederReverb(samplerate)
         self.reverb.set_space("wash", size=0.9, diffusion=0.7)
-        self.reverb.set_feedback(0.9)            # long decay
         self.delay = FeedbackDelay(samplerate, seconds=2.0, feedback=0.5)
-        self.reverb_amount = float(np.clip(reverb_amount, 0.0, 1.0))
-        self.delay_amount = float(np.clip(delay_amount, 0.0, 1.0))
+        self.reverb_amount = 0.0
+        self.delay_amount = 0.0
+        self.set_reverb(reverb_amount)
+        self.set_delay(delay_amount)
 
     def set_reverb(self, amount):
-        self.reverb_amount = float(np.clip(amount, 0.0, 1.0))
+        self.reverb_amount = float(np.clip(amount, 0.0, self.REVERB_MAX))
+        # Longer decay as the slider climbs (0.90 -> 0.96 at max).
+        self.reverb.set_feedback(min(0.96, 0.90 + 0.04 * self.reverb_amount))
 
     def set_delay(self, amount):
         self.delay_amount = float(np.clip(amount, 0.0, 1.0))

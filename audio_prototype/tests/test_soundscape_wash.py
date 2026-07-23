@@ -33,3 +33,13 @@ def test_output_is_bounded_and_finite():
     for _ in range(40):
         out = wash.process((0.5 * rng.standard_normal(1024)).astype(np.float32))
         assert not np.any(np.isnan(out))
+
+
+def test_reverb_amount_clamps_to_extended_max_and_lengthens_tail():
+    wash = SoundscapeWash(44100)
+    wash.set_reverb(3.0)                       # past the slider max
+    assert wash.reverb_amount == 1.5           # clamped to REVERB_MAX
+    fb_high = wash.reverb._combs[0].feedback
+    wash.set_reverb(0.0)
+    fb_low = wash.reverb._combs[0].feedback
+    assert fb_high > fb_low                     # more washy = longer decay at the top
