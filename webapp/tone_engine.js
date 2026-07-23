@@ -152,6 +152,13 @@ export class ToneEngine {
 
   _disposeMacro(voice) {
     if (!voice.macro) return;
+    if (voice.nodes?.input) {
+      try {
+        voice.nodes.input.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
     for (const node of voice.macro.nodes ?? []) {
       try {
         node.disconnect();
