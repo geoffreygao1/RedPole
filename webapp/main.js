@@ -143,10 +143,21 @@ function drawJack(ctx, x, y, color) {
   ctx.stroke();
 }
 
-function midiToNoteName(midi) {
+function midiToPitchClassName(midi) {
   const rounded = Math.round(midi);
   const pitchClass = ((rounded % 12) + 12) % 12;
-  return `${NOTE_NAMES[pitchClass]}${Math.floor(rounded / 12) - 1}`;
+  return NOTE_NAMES[pitchClass];
+}
+
+function rootMidiFromPitchClass(pitchClass) {
+  return 48 + Math.round(pitchClass);
+}
+
+function formatTranspose(value) {
+  const semitones = Math.round(value);
+  if (semitones === 12) return "+1 oct";
+  if (semitones === -12) return "-1 oct";
+  return `${semitones > 0 ? "+" : ""}${semitones} st`;
 }
 
 class App {
@@ -284,7 +295,7 @@ class App {
     await this.synthEngine.init();
     this.scheduler = new Scheduler(this.synthEngine, { seed: 2130 });
     this.scheduler.start();
-    if (this.rootSlider) this.scheduler.setRoot(parseFloat(this.rootSlider.value));
+    if (this.rootSlider) this.scheduler.setRoot(rootMidiFromPitchClass(this.rootSlider.value));
     if (this.moodSelect) this.scheduler.setMood(this.moodSelect.value);
     if (this.reverbSlider) this.synthEngine.setReverb(parseFloat(this.reverbSlider.value));
     if (this.delaySlider) this.synthEngine.setDelay(parseFloat(this.delaySlider.value));
@@ -387,7 +398,7 @@ class App {
       this.rootSlider.addEventListener("input", (e) => {
         this.syncKnobControl(e.target);
         if (this.mode !== "synth" || !this.scheduler) return;
-        this.scheduler.setRoot(parseFloat(e.target.value));
+        this.scheduler.setRoot(rootMidiFromPitchClass(e.target.value));
       });
     }
     if (this.moodSelect) {
@@ -859,13 +870,13 @@ class App {
     const control = input.closest(".knob-control");
     if (!control) return;
     control.style.setProperty("--knob-angle", `${angle}deg`);
-    control.style.setProperty("--knob-fill", `${norm * 100}%`);
+    control.style.setProperty("--knob-fill", `${norm * 75}%`);
     const output = control.querySelector("output");
     if (!output) return;
     if (input.id === "root-slider") {
-      output.textContent = midiToNoteName(value);
+      output.textContent = midiToPitchClassName(value);
     } else if (input.id === "transpose-slider") {
-      output.textContent = `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
+      output.textContent = formatTranspose(value);
     } else {
       output.textContent = `${Math.round(norm * 100)}%`;
     }

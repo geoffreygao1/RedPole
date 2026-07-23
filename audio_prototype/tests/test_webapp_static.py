@@ -79,10 +79,13 @@ def test_synth_mode_has_global_transpose_control():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
-    assert 'id="transpose-slider"' in index_html
+    assert '<input id="transpose-slider" type="range" min="-12" max="12" step="1" value="0"' in index_html
     assert 'this.transposeSlider = document.getElementById("transpose-slider");' in main_js
     assert 'this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value))' in main_js
     assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
+    assert "formatTranspose(value)" in main_js
+    assert 'if (semitones === 12) return "+1 oct";' in main_js
+    assert 'if (semitones === -12) return "-1 oct";' in main_js
 
 
 def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
@@ -115,11 +118,16 @@ def test_root_knob_controls_integer_note_names_not_raw_midi_numbers():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
-    assert '<input id="root-slider" type="range" min="36" max="60" step="1" value="48"' in index_html
+    assert '<input id="root-slider" type="range" min="0" max="11" step="1" value="0"' in index_html
     assert "const NOTE_NAMES =" in main_js
-    assert "midiToNoteName(value)" in main_js
-    assert 'output.textContent = midiToNoteName(value);' in main_js
+    assert "rootMidiFromPitchClass" in main_js
+    assert "48 + Math.round(pitchClass)" in main_js
+    assert "midiToPitchClassName(value)" in main_js
+    assert 'output.textContent = midiToPitchClassName(value);' in main_js
+    assert "this.scheduler.setRoot(rootMidiFromPitchClass(e.target.value));" in main_js
+    assert "this.scheduler.setRoot(rootMidiFromPitchClass(this.rootSlider.value));" in main_js
     assert '`MIDI ${Math.round(value)}`' not in main_js
+    assert "Math.floor(rounded / 12) - 1" not in main_js
 
 
 def test_midi_knobs_use_vertical_pointer_drag_not_native_horizontal_range():
@@ -135,6 +143,8 @@ def test_midi_knobs_use_vertical_pointer_drag_not_native_horizontal_range():
     assert "this.knobValueForVerticalDrag" in main_js
     assert "startY - clientY" in main_js
     assert "new Event(\"input\", { bubbles: true })" in main_js
+    assert "norm * 75" in main_js
+    assert "norm * 100" in main_js
     assert "touch-action: none;" in style_css
 
 
@@ -162,8 +172,8 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-clean-patch-layout"' in index_html
-    assert 'src="main.js?v=20260723-clean-patch-layout"' in index_html
+    assert 'href="style.css?v=20260723-knob-root-transpose"' in index_html
+    assert 'src="main.js?v=20260723-knob-root-transpose"' in index_html
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
     assert '<canvas id="patch-canvas" width="672" height="314"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
