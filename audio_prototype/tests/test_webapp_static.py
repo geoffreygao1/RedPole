@@ -92,6 +92,13 @@ def test_tone_buffers_uses_clickbath_base_url_for_sample_loading():
     assert "new this.Tone.Buffers(urls, { baseUrl: CLICKBATH_BASE_URL })" not in tone_engine_js
 
 
+def test_scan_fingerprint_module_path_avoids_privacy_extension_blocking():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert 'from "./generative/scan-profile.js' in main_js
+    assert "generative/fingerprint.js" not in main_js
+
+
 def test_mode_switch_pauses_loop_and_ignores_stale_source_replies():
     main_js = (ROOT / "webapp" / "main.js").read_text()
 

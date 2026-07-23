@@ -8,7 +8,7 @@ import {
   macroPresetId,
   sourceForSlot,
 } from "./soundbath_config.js";
-import { deriveFingerprint } from "./generative/fingerprint.js";
+import { deriveFingerprint } from "./generative/scan-profile.js?v=20260723-extension-safe";
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
@@ -199,12 +199,18 @@ class App {
 
   async init() {
     // Boot straight into the synth (fast Tone.js init, no Pyodide).
-    await this.ensureSynthEngine();
-    this.applyModeControls();
-    this.appEl.classList.remove("hidden");
-    this.statusEl.classList.add("hidden");
-    this.drawPatchBay();
-    this.renderSourceList();
+    try {
+      await this.ensureSynthEngine();
+      this.applyModeControls();
+      this.appEl.classList.remove("hidden");
+      this.statusEl.classList.add("hidden");
+      this.drawPatchBay();
+      this.renderSourceList();
+    } catch (error) {
+      console.error("Failed to initialize audio engine", error);
+      this.statusEl.textContent = `Audio engine failed to load: ${error?.message ?? error}`;
+      this.statusEl.classList.remove("hidden");
+    }
   }
 
   // Lazily create the loop-mode engine (Pyodide worker + AudioWorklet ring

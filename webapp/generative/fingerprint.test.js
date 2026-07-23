@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveFingerprint } from "./fingerprint.js";
+import { deriveFingerprint } from "./scan-profile.js";
 
 test("deriveFingerprint is deterministic for the same scan", () => {
   const a = deriveFingerprint({ hue: 0.03, sat: 0.68, val: 0.94, bpm: 70 });
