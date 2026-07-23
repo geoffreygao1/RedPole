@@ -12,6 +12,7 @@ import threading
 import numpy as np
 import sounddevice as sd
 
+from audio_io import read_mono_audio, resample_linear
 from ring_buffer import RingBuffer
 from soundscape_engine import SoundscapeEngine
 
@@ -28,6 +29,7 @@ class SynthAudioEngine:
         self.engine = SoundscapeEngine(
             samplerate=samplerate, seed=seed, root_midi=self._root_midi
         )
+        self._loaded_sample = None
         self.visual_buffer = RingBuffer(int(samplerate * VISUALIZER_BUFFER_SECONDS))
         self._stream = None
         self._paused = True
@@ -117,3 +119,25 @@ class SynthAudioEngine:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+
+    # ---------- sample + tuning ----------
+
+    def load_sample(self, path):
+        mono, file_rate = read_mono_audio(path)
+        samples = resample_linear(mono, file_rate, self.samplerate)
+        self.load_sample_array(samples)
+
+    def load_sample_array(self, samples):
+        samples = np.asarray(samples, dtype=np.float64)
+        with self._lock:
+            self._loaded_sample = samples
+            self.engine.sources.texture.load_sample(samples)
+
+    def set_root_midi(self, root_midi):
+        with self._lock:
+            self._root_midi = int(root_midi)
+            self.engine = SoundscapeEngine(
+                samplerate=self.samplerate, seed=self._seed, root_midi=self._root_midi
+            )
+            if self._loaded_sample is not None:
+                self.engine.sources.texture.load_sample(self._loaded_sample)

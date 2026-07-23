@@ -567,7 +567,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `.load_sample_array(samples) -> None` — forwards an already-decoded mono array (used by the file path and by tests).
   - `.set_root_midi(root_midi) -> None` — rebuilds a fresh `SoundscapeEngine` at the new root (drops all patches by design), re-applying the last loaded sample if any.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_synth_audio_engine.py
@@ -617,12 +617,12 @@ def test_set_root_midi_reapplies_loaded_sample():
     assert not np.allclose(out, base)  # loaded sample carried across the rebuild
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -k "sample or root_midi" -v`
 Expected: FAIL — `AttributeError: 'SynthAudioEngine' object has no attribute 'load_sample_array'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add `from audio_io import read_mono_audio, resample_linear` to the imports at the top of `synth_audio_engine.py`, add `self._loaded_sample = None` to `__init__` (right after `self.engine = ...`), and append these methods to the class:
 
@@ -650,12 +650,12 @@ Add `from audio_io import read_mono_audio, resample_linear` to the imports at th
                 self.engine.sources.texture.load_sample(self._loaded_sample)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_synth_audio_engine.py -v`
 Expected: PASS (17 tests total).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_audio_engine.py audio_prototype/tests/test_synth_audio_engine.py

@@ -152,3 +152,47 @@ def test_callback_fills_outdata_stereo(monkeypatch):
     eng._callback(out, 256, None, None)
     assert out.shape == (256, 2)
     np.testing.assert_array_equal(out[:, 0], out[:, 1])
+
+
+def test_load_sample_array_changes_texture_output():
+    a = SynthAudioEngine(seed=6)
+    b = SynthAudioEngine(seed=6)
+    b.load_sample_array(np.sin(2 * np.pi * 440 * np.arange(44100 * 3) / 44100))
+    a.connect_patch(0.03, 0.68, 0.94, 90.0, "texture_1")
+    b.connect_patch(0.03, 0.68, 0.94, 90.0, "texture_1")
+    out_a = np.concatenate([a.generate_block(1024) for _ in range(20)])
+    out_b = np.concatenate([b.generate_block(1024) for _ in range(20)])
+    assert not np.allclose(out_a, out_b)
+
+
+def test_load_sample_reads_file(tmp_path):
+    import soundfile as sf
+
+    path = tmp_path / "tex.wav"
+    sf.write(str(path), np.sin(2 * np.pi * 330 * np.arange(44100) / 44100), 44100)
+    eng = SynthAudioEngine(seed=6)
+    eng.load_sample(str(path))  # should not raise
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "texture_1")
+    out = np.concatenate([eng.generate_block(1024) for _ in range(10)])
+    assert not np.any(np.isnan(out))
+
+
+def test_set_root_midi_rebuilds_and_clears_patches():
+    eng = SynthAudioEngine(seed=1, root_midi=62)
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "additive_2")
+    assert len(eng.active_patches()) == 1
+    eng.set_root_midi(60)
+    assert eng.root_midi == 60
+    assert eng.active_patches() == []
+
+
+def test_set_root_midi_reapplies_loaded_sample():
+    eng = SynthAudioEngine(seed=6)
+    eng.load_sample_array(np.sin(2 * np.pi * 440 * np.arange(44100 * 3) / 44100))
+    eng.set_root_midi(65)
+    baseline = SynthAudioEngine(seed=6)  # same seed, no sample loaded
+    eng.connect_patch(0.03, 0.68, 0.94, 90.0, "texture_1")
+    baseline.connect_patch(0.03, 0.68, 0.94, 90.0, "texture_1")
+    out = np.concatenate([eng.generate_block(1024) for _ in range(20)])
+    base = np.concatenate([baseline.generate_block(1024) for _ in range(20)])
+    assert not np.allclose(out, base)  # loaded sample carried across the rebuild
