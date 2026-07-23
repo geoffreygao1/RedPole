@@ -466,17 +466,13 @@ class RedPoleGUI:
     def _on_tab_changed(self, _event):
         tab = self.notebook.tab(self.notebook.select(), "text")
         if tab == "Synth":
+            # The Synth tab's own Play/Pause button owns synth playback; entering
+            # the tab just hands the audio device over (loop paused, synth silent
+            # until the user presses Play).
             self._loop_was_playing_before_synth = not self.engine.paused
             self.engine.pause()
             self.pause_button.configure(text="Play")
-            try:
-                self.synth_engine.resume()
-            except Exception as exc:  # audio device failed to open
-                messagebox.showerror("Synth audio", f"Could not start synth audio: {exc}")
-                self.notebook.select(self.loop_tab)
-                if self._loop_was_playing_before_synth:
-                    self.engine.resume()
-                    self.pause_button.configure(text="Pause")
+            self.synth_engine.pause()
         else:
             self.synth_engine.pause()
             if self._loop_was_playing_before_synth:
