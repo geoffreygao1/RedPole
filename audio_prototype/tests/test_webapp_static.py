@@ -162,16 +162,19 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-root-note-scale"' in index_html
-    assert 'src="main.js?v=20260723-root-note-scale"' in index_html
+    assert 'href="style.css?v=20260723-clean-patch-layout"' in index_html
+    assert 'src="main.js?v=20260723-clean-patch-layout"' in index_html
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
-    assert '<canvas id="patch-canvas" width="680" height="306"></canvas>' in index_html
+    assert '<canvas id="patch-canvas" width="672" height="314"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
     assert "justify-items: center;" in style_css
-    assert "grid-template-columns: 220px 176px 718px;" in style_css
+    assert "grid-template-columns: 220px 176px 710px;" in style_css
     assert "#scan-input {\n  width: 220px;" in style_css
-    assert "#patch-bay {\n  width: 718px;" in style_css
-    assert "height: 500px;" in style_css
+    assert "#patch-bay {\n  width: 710px;" in style_css
+    assert "#scan-input,\n#patch-bay,\n#sources {\n  height: 460px;" in style_css
+    assert "height: 500px;" not in style_css
+    assert "gap: 8px;" in style_css
+    assert "margin-bottom: 10px;" in style_css
     assert "transform: rotate(var(--knob-angle))" not in style_css
 
 
@@ -349,12 +352,12 @@ def test_sources_are_left_of_patch_bay_and_drag_routed_explicitly():
 
     style_css = (ROOT / "webapp" / "style.css").read_text()
     assert "#app" in style_css
-    assert "grid-template-columns: 220px 176px 718px;" in style_css
+    assert "grid-template-columns: 220px 176px 710px;" in style_css
     assert "flex-wrap" not in style_css
     assert "#sources" in style_css
     assert "width: 176px;" in style_css
     assert "#patch-bay" in style_css
-    assert "width: 718px;" in style_css
+    assert "width: 710px;" in style_css
     assert "white-space: nowrap;" in style_css
     assert 'removeButton.textContent = "\\u00d7";' in main_js
     assert 'removeButton.className = "icon-button";' in main_js
