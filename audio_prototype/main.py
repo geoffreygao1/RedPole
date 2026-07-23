@@ -5,20 +5,23 @@ from tkinter import messagebox
 
 from audio_engine import AudioEngine
 from gui import RedPoleGUI
+from synth_audio_engine import SynthAudioEngine
 
 DEFAULT_LOOP_PATH = Path(__file__).parent / "assets" / "sample_loop.wav"
 
 
 def main():
     engine = AudioEngine()
+    synth_engine = SynthAudioEngine()
     root = tk.Tk()
     try:
-        RedPoleGUI(root, engine, str(DEFAULT_LOOP_PATH))
+        RedPoleGUI(root, engine, synth_engine, str(DEFAULT_LOOP_PATH))
     except Exception as exc:
         messagebox.showerror("RedPole Audio Prototype", f"Failed to start: {exc}")
         sys.exit(1)
     root.mainloop()
     engine.stop()
+    synth_engine.stop()
 
 
 if __name__ == "__main__":

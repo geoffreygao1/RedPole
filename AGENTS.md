@@ -4,12 +4,12 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — Phase 1 of the Evolving Soundscape Synthesizer redesign (docs/superpowers/plans/2026-07-22-evolving-soundscape-phase1.md) is implemented as new, additive modules in audio_prototype/ (soundscape_*.py): 5 source engines x 5 presets, 5 transform engines x 5 presets, a shared harmonic pitch field with register-aware allocation, density-based gain scaling, and a simple voice-priority system. Runnable via `python soundscape_prototype.py` from audio_prototype/ (desktop-only, no browser/Pyodide port yet). The existing web app's Loop/Synth modes and audio_prototype/gui.py are untouched. Firmware/TD integration still WIP.
-- **Last session:** 2026-07-22 — implemented Phase 1 of the evolving-soundscape redesign per the new spec (see docs/superpowers/specs/2026-07-22-evolving-soundscape-design.md and the plan above); previous sample-backed synth mode work is preserved but will be replaced by this system once tuned (per project decision).
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) now has a ttk.Notebook with two tabs: the existing **Loop** tab (unchanged) and a new **Synth** tab that drives the Phase 1 SoundscapeEngine live via SynthAudioEngine (synth_audio_engine.py) + SynthTab (synth_tab.py). Users pick a source preset and optional transform preset from two 5x5 grids, set a finger-scan color + BPM, Connect/Remove patches, Load a texture sample, and retune the harmonic root. Only the active tab's stream plays. Web app Loop/Synth modes untouched; firmware/TD integration still WIP.
+- **Last session:** 2026-07-23 — implemented the interactive Synth tab (phase 2, first pass) per docs/superpowers/plans/2026-07-23-synth-tab-phase2.md: extracted audio_io.py, added SynthAudioEngine (stream lifecycle + sample load + root retune, thread-guarded) and the SynthTab UI, wrapped gui.py in a Notebook with tab-based stream handoff.
 - **Next up:**
-  - Tune Phase 1 by ear against the reference playlist (spec section 4, 16): register limits, gain curves, preset parameters in soundscape_sources.py / soundscape_transforms.py.
-  - Plan Phase 2 (spec section 13): wire SoundscapeEngine into a real 5x5 output-matrix / 5x5 input-matrix UI, replacing LayerRegistry's single-engine/row/col model for this system.
-  - Once tuned, plan the port that replaces the web app's Synth mode with this engine (desktop-proven first, per project decision).
+  - Tune by ear in the Synth tab: slot/preset ordering, color->timbre feel, transform intensities, root-note choices.
+  - Consider a drag-and-drop patch bay for Synth mode and persisting patches between sessions.
+  - Wire hardware finger-scan input into the Synth tab (spec Phase 3).
   - Document the firmware serial message shape (base64 JPEG framing).
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 

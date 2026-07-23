@@ -1437,7 +1437,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `AudioEngine`, `synth_audio_engine.SynthAudioEngine`, `gui.RedPoleGUI`.
 - Produces: an app that builds both engines, passes both to `RedPoleGUI`, and stops both on exit.
 
-- [ ] **Step 1: Update `main.py`**
+- [x] **Step 1: Update `main.py`**
 
 Replace the body of `main()` so both engines are built and both are stopped on exit:
 
@@ -1472,7 +1472,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Manual launch verification (has a display; do NOT run in headless CI)**
+- [x] **Step 2: Manual launch verification (has a display; do NOT run in headless CI)**
 
 Run from `audio_prototype/`: `py -3.11 main.py`
 Expected:
@@ -1483,12 +1483,12 @@ Expected:
 
 This step is a human check — a subagent without a display should mark it done-by-inspection and note that automated coverage lives in Tasks 2-7.
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
 
 Run from `audio_prototype/`: `py -3.11 -m pytest tests/ -v`
 Expected: PASS — every pre-existing test (378 baseline) plus the new `test_audio_io` (5), `test_synth_audio_engine` (17), `test_synth_tab` (6 headless / 9 with display), and the `test_gui` signature test. Zero pre-existing tests changed or broke.
 
-- [ ] **Step 4: Refresh the "Pick up here" brief**
+- [x] **Step 4: Refresh the "Pick up here" brief**
 
 Update `AGENTS.md` lines 6-14 to:
 
@@ -1504,7 +1504,7 @@ Update `AGENTS.md` lines 6-14 to:
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/main.py AGENTS.md
