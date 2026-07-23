@@ -139,7 +139,11 @@ function drawJack(ctx, x, y, color) {
 
 class App {
   constructor() {
-    this.worker = new Worker(`worker.js?v=${APP_ASSET_VERSION}`);
+    // Loop mode (Pyodide worker + AudioWorklet) is created lazily on first use
+    // so the page boots straight into the lightweight Tone.js synth with no
+    // ~10 MB WASM/numpy load.
+    this.worker = null;
+    this.loopReady = false;
     this.sources = new Map(); // sourceId -> {x, y, color, bpm, slot, row, col}
     // FIFO queue of sources sent to the worker via "add_source" but not yet
     // confirmed by a "source_added" reply. The worker processes add_source
@@ -154,7 +158,7 @@ class App {
     this.dragSourceId = null;
     this.dragPos = null;
     this.currentHsv = { hue: 0.03, sat: 0.68, val: 0.94 };
-    this.mode = "loop";
+    this.mode = "synth";
     this.loopLoaded = false;
     this.nextSynthSourceId = 1;
     this.synthEngine = null;
@@ -180,16 +184,30 @@ class App {
     this.reverbSlider = document.getElementById("reverb-slider");
     this.delaySlider = document.getElementById("delay-slider");
 
-    this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
-    this.setupAudio();
     this.buildPicker();
     this.drawPicker();
     this.updateScanPreview();
     this.bindControls();
     this.drawPatchBay();
+    this.init();
   }
 
-  async setupAudio() {
+  async init() {
+    // Boot straight into the synth (fast Tone.js init, no Pyodide).
+    await this.ensureSynthEngine();
+    this.applyModeControls();
+    this.appEl.classList.remove("hidden");
+    this.statusEl.classList.add("hidden");
+    this.drawPatchBay();
+    this.renderSourceList();
+  }
+
+  // Lazily create the loop-mode engine (Pyodide worker + AudioWorklet ring
+  // buffer). Only runs when the user actually switches to / plays loop mode.
+  async ensureLoopEngine() {
+    if (this.loopReady) return;
+    this.worker = new Worker(`worker.js?v=${APP_ASSET_VERSION}`);
+    this.worker.onmessage = (event) => this.onWorkerMessage(event.data);
     this.audioContext = new AudioContext();
     await this.audioContext.audioWorklet.addModule(`worklet.js?v=${APP_ASSET_VERSION}`);
     this.workletNode = new AudioWorkletNode(this.audioContext, "ring-worklet-processor", {
@@ -210,6 +228,24 @@ class App {
       { type: "init", sampleRate: this.audioContext.sampleRate, audioPort: channel.port1 },
       [channel.port1]
     );
+    this.loopReady = true;
+  }
+
+  // Show only the controls relevant to the active mode.
+  applyModeControls() {
+    const synth = this.mode === "synth";
+    const toggleLabel = (el, hide) => {
+      const label = el?.closest("label");
+      if (label) label.classList.toggle("hidden", hide);
+    };
+    toggleLabel(document.getElementById("wet-dry-slider"), synth); // loop-only
+    toggleLabel(this.rootSlider, !synth); // synth-only
+    toggleLabel(this.reverbSlider, !synth);
+    toggleLabel(this.delaySlider, !synth);
+    this.loadLoopButton?.classList.toggle("hidden", synth);
+    document.getElementById("debug")?.classList.toggle("hidden", synth);
+    this.modeSwitchButton?.classList.toggle("synth", synth);
+    this.modeSwitchButton?.setAttribute("aria-pressed", synth ? "true" : "false");
   }
 
   async ensureSynthEngine() {
@@ -314,7 +350,7 @@ class App {
       await this.setMode(this.mode === "loop" ? "synth" : "loop");
     });
     document.getElementById("wet-dry-slider").addEventListener("input", (e) => {
-      if (this.mode === "synth") return;
+      if (this.mode === "synth" || !this.worker) return;
       this.worker.postMessage({ type: "set_wet_dry", value: parseFloat(e.target.value) });
     });
     if (this.rootSlider) {
@@ -362,8 +398,12 @@ class App {
       this.playPauseButton.textContent = "Play";
     }
     this.mode = mode;
-    this.worker.postMessage({ type: "set_mode", mode });
-    if (mode === "synth") await this.ensureSynthEngine();
+    if (mode === "synth") {
+      await this.ensureSynthEngine();
+    } else {
+      await this.ensureLoopEngine();
+      this.worker.postMessage({ type: "set_mode", mode });
+    }
 
     // Mirror the engine's server-side reset: clear all client patch state.
     this.sources.clear();
@@ -372,12 +412,8 @@ class App {
     this.dragSourceId = null;
     this.dragPos = null;
 
-    // Loop mode uses a single loaded loop; synth mode uses local sample-bank
-    // sources when provided, with generated tones only as a fallback.
-    this.loadLoopButton.classList.toggle("hidden", mode === "synth");
     this.loadSamplesButton.classList.toggle("hidden", true);
-    this.modeSwitchButton.classList.toggle("synth", mode === "synth");
-    this.modeSwitchButton.setAttribute("aria-pressed", mode === "synth" ? "true" : "false");
+    this.applyModeControls();
 
     this.drawPatchBay();
     this.renderSourceList();
@@ -395,6 +431,7 @@ class App {
       }
       return;
     }
+    await this.ensureLoopEngine();
     if (!this.loopLoaded) {
       this.statusEl.textContent = "Load a loop or switch to Synth before playing.";
       this.statusEl.classList.remove("hidden");
