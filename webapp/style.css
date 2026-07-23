@@ -1,8 +1,16 @@
+:root {
+  --panel-height: 526px;
+  --panel-padding-y: 12px;
+  --panel-padding-x: 14px;
+  --panel-gap: 16px;
+  --control-gap: 10px;
+}
+
 body {
   font-family: system-ui, sans-serif;
   background: #161616;
   color: #e0e0e0;
-  padding: 16px;
+  padding: var(--panel-gap);
 }
 
 .hidden {
@@ -12,7 +20,7 @@ body {
 #app {
   display: grid;
   grid-template-columns: 220px 176px 710px;
-  gap: 16px;
+  gap: var(--panel-gap);
   align-items: flex-start;
 }
 
@@ -20,7 +28,7 @@ section {
   background: #1f1f1f;
   border: 1px solid #3a3a3a;
   border-radius: 6px;
-  padding: 12px 14px;
+  padding: var(--panel-padding-y) var(--panel-padding-x);
   box-sizing: border-box;
 }
 
@@ -72,27 +80,29 @@ section h3 {
 
 #sources {
   width: 176px;
+  display: flex;
+  flex-direction: column;
 }
 
 #patch-bay {
   width: 710px;
-  height: 526px;
 }
 
 #scan-input,
-#sources {
-  height: 460px;
+#sources,
+#patch-bay {
+  height: var(--panel-height);
 }
 
 .control-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: var(--control-gap);
 }
 
 .field-block {
-  margin-bottom: 10px;
+  margin-bottom: var(--control-gap);
 }
 
 .field-block label,
@@ -320,11 +330,13 @@ button:hover {
 }
 
 #source-list {
+  flex: 1 1 auto;
   list-style: none;
   padding: 0;
   margin: 0;
   width: 100%;
-  height: 356px;
+  height: auto;
+  min-height: 0;
   overflow-y: auto;
 }
 

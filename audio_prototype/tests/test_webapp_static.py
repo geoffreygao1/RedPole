@@ -189,18 +189,25 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-garnish-variation"' in index_html
-    assert 'src="main.js?v=20260723-garnish-variation"' in index_html
+    assert 'href="style.css?v=20260723-panel-rhythm"' in index_html
+    assert 'src="main.js?v=20260723-panel-rhythm"' in index_html
     assert 'from "./scheduler.js?v=20260723-garnish-variation"' in main_js
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
     assert '<canvas id="patch-canvas" width="672" height="380"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
     assert "justify-items: center;" in style_css
+    assert "--panel-height: 526px;" in style_css
+    assert "--panel-padding-y: 12px;" in style_css
+    assert "--panel-padding-x: 14px;" in style_css
+    assert "padding: var(--panel-padding-y) var(--panel-padding-x);" in style_css
     assert "grid-template-columns: 220px 176px 710px;" in style_css
     assert "#scan-input {\n  width: 220px;" in style_css
     assert "#patch-bay {\n  width: 710px;" in style_css
-    assert "#patch-bay {\n  width: 710px;\n  height: 526px;" in style_css
-    assert "#scan-input,\n#sources {\n  height: 460px;" in style_css
+    assert "#scan-input,\n#sources,\n#patch-bay {\n  height: var(--panel-height);" in style_css
+    assert "#sources {\n  width: 176px;\n  display: flex;" in style_css
+    assert "#source-list {\n  flex: 1 1 auto;" in style_css
+    assert "height: auto;" in style_css
+    assert "height: 460px;" not in style_css
     assert "height: 500px;" not in style_css
     assert "gap: 8px;" in style_css
     assert "margin-bottom: 10px;" in style_css
