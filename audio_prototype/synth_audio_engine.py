@@ -98,9 +98,9 @@ class SynthAudioEngine:
         outdata[:, :] = self.generate_stereo_block(frames)
 
     def start(self):
-        if self._stream is None:
-            self._open_stream()
         if not self._paused:
+            if self._stream is None:
+                self._open_stream()
             self._stream.start()
 
     def resume(self):
@@ -129,6 +129,8 @@ class SynthAudioEngine:
 
     def load_sample_array(self, samples):
         samples = np.asarray(samples, dtype=np.float64)
+        if len(samples) == 0:
+            raise ValueError("sample must contain at least one frame")
         with self._lock:
             self._loaded_sample = samples
             self.engine.sources.texture.load_sample(samples)

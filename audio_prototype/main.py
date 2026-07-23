@@ -16,12 +16,13 @@ def main():
     root = tk.Tk()
     try:
         RedPoleGUI(root, engine, synth_engine, str(DEFAULT_LOOP_PATH))
+        root.mainloop()
     except Exception as exc:
         messagebox.showerror("RedPole Audio Prototype", f"Failed to start: {exc}")
         sys.exit(1)
-    root.mainloop()
-    engine.stop()
-    synth_engine.stop()
+    finally:
+        engine.stop()
+        synth_engine.stop()
 
 
 if __name__ == "__main__":

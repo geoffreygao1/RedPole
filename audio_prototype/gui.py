@@ -154,6 +154,7 @@ class RedPoleGUI:
         self._source_colors = {}
         self._drag_source_id = None
         self._drag_line = None
+        self._loop_was_playing_before_synth = False
 
         self.hue_var = tk.DoubleVar(value=0.0)
         self.sat_var = tk.DoubleVar(value=0.75)
@@ -465,16 +466,24 @@ class RedPoleGUI:
     def _on_tab_changed(self, _event):
         tab = self.notebook.tab(self.notebook.select(), "text")
         if tab == "Synth":
+            self._loop_was_playing_before_synth = not self.engine.paused
             self.engine.pause()
+            self.pause_button.configure(text="Play")
             try:
                 self.synth_engine.resume()
             except Exception as exc:  # audio device failed to open
                 messagebox.showerror("Synth audio", f"Could not start synth audio: {exc}")
                 self.notebook.select(self.loop_tab)
-                self.engine.resume()
+                if self._loop_was_playing_before_synth:
+                    self.engine.resume()
+                    self.pause_button.configure(text="Pause")
         else:
             self.synth_engine.pause()
-            self.engine.resume()
+            if self._loop_was_playing_before_synth:
+                self.engine.resume()
+                self.pause_button.configure(text="Pause")
+            else:
+                self.pause_button.configure(text="Play")
 
     def _source_positions(self):
         sources = self.engine.registry.sources_snapshot()

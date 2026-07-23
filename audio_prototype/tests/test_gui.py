@@ -265,3 +265,44 @@ def test_switching_to_synth_tab_pauses_loop_and_resumes_synth():
         pytest.skip("covered by manual launch; see Task 8 Step 2")
     finally:
         root.destroy()
+
+
+class _FakeNotebook:
+    def __init__(self, tab_text):
+        self.tab_text = tab_text
+
+    def select(self, _tab=None):
+        if _tab is not None:
+            self.tab_text = "Loop"
+        return "selected"
+
+    def tab(self, _selected, option):
+        assert option == "text"
+        return self.tab_text
+
+
+class _FakeButton:
+    def __init__(self):
+        self.text = None
+
+    def configure(self, **kwargs):
+        self.text = kwargs.get("text", self.text)
+
+
+def test_returning_to_loop_does_not_resume_if_loop_was_paused():
+    from gui import RedPoleGUI
+
+    gui = RedPoleGUI.__new__(RedPoleGUI)
+    gui.engine = _StubEngine()
+    gui.engine.paused = True
+    gui.synth_engine = _StubEngine()
+    gui.notebook = _FakeNotebook("Synth")
+    gui.loop_tab = object()
+    gui.pause_button = _FakeButton()
+
+    gui._on_tab_changed(None)
+    gui.notebook.tab_text = "Loop"
+    gui._on_tab_changed(None)
+
+    assert "resume" not in gui.engine.calls
+    assert gui.pause_button.text == "Play"

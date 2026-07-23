@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from synth_audio_engine import SynthAudioEngine
 
@@ -102,6 +103,7 @@ def test_starts_paused_and_opens_no_stream(monkeypatch):
     eng = SynthAudioEngine(seed=1)
     assert eng.paused is True
     eng.start()  # start() while paused should not begin playback
+    assert ("init", 2) not in events
     assert ("start",) not in events
 
 
@@ -163,6 +165,12 @@ def test_load_sample_array_changes_texture_output():
     out_a = np.concatenate([a.generate_block(1024) for _ in range(20)])
     out_b = np.concatenate([b.generate_block(1024) for _ in range(20)])
     assert not np.allclose(out_a, out_b)
+
+
+def test_load_sample_array_rejects_empty_samples():
+    eng = SynthAudioEngine(seed=6)
+    with pytest.raises(ValueError):
+        eng.load_sample_array(np.zeros(0, dtype=np.float32))
 
 
 def test_load_sample_reads_file(tmp_path):
