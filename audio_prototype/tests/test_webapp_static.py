@@ -47,18 +47,18 @@ def test_mode_control_is_a_pill_switch_and_synth_options_are_not_visible():
     assert ".mode-switch.synth .mode-switch-thumb" in style_css
 
 
-def test_synth_mode_patch_labels_show_sound_bath_effects():
-    main_js = (ROOT / "webapp" / "main.js").read_text()
+def test_sampler_macro_soundbath_grid_config_is_5x5_and_sample_only():
+    config_js = (ROOT / "webapp" / "soundbath_config.js").read_text()
 
-    assert 'const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];' in main_js
-    assert 'const SYNTH_ROW_LABELS = MODIFIER_ROWS;' in main_js
-    assert 'const SYNTH_SOURCE_ROWS = ["pluck", "pad", "bloom"];' in main_js
-    assert '"piano", "guitar", "tapeguitar", "tapebell", "casio"' in main_js
-    assert '"strings", "flute", "clarinet", "casio", "piano"' in main_js
-    assert '"strings", "flute", "clarinet", "guitar", "tapebell"' in main_js
-    assert "this.rowLabels()" in main_js
-    assert 'this.mode === "synth" ? SYNTH_ROW_LABELS : LOOP_ROW_LABELS' in main_js
-    assert "this.outputCellLabel(row, col)" in main_js
+    assert 'const SOURCE_ROWS = ["pluck", "pad", "bloom", "bell", "drone"];' in config_js
+    assert 'const MACRO_ROWS = ["veil", "shimmer", "flutter", "scatter", "space"];' in config_js
+    assert '"piano", "guitar", "tapeguitar", "tapebell", "casio"' in config_js
+    assert '"strings", "flute", "clarinet", "casio", "piano"' in config_js
+    assert '"strings", "flute", "clarinet", "tapebell", "guitar"' in config_js
+    assert '"tapebell", "casio", "piano", "guitar", "flute"' in config_js
+    assert '"strings", "casio", "flute", "clarinet", "tapeguitar"' in config_js
+    assert "export function sourceForSlot" in config_js
+    assert "export function macroPresetId" in config_js
 
 
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
