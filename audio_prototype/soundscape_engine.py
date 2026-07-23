@@ -7,8 +7,9 @@ each buffer."""
 import numpy as np
 
 from modulation import RmsLimiter, soft_clip
+from soundscape_conductor import VoiceConductor
 from soundscape_density import DensityGainSmoother, ROLE_GAIN, assign_voice_roles
-from soundscape_harmony import HarmonicField, PitchAllocator
+from soundscape_harmony import HarmonicField, PitchAllocator, ROLE_SEMITONES
 from soundscape_sources import SourceBank
 from soundscape_transforms import TransformBank
 
@@ -34,6 +35,9 @@ class SoundscapeEngine:
         self.sources = SourceBank(samplerate, seed=seed)
         self.transforms = TransformBank(samplerate, seed=seed)
         self.gain_smoother = DensityGainSmoother()
+        self.conductor = VoiceConductor(samplerate=samplerate, seed=seed)
+        self._root_target = float(root_midi)
+        self._root_current = float(root_midi)
         self.limiter = RmsLimiter(target_rms=0.3)
         self._patches = {}
         self._assignments = {}
@@ -58,17 +62,26 @@ class SoundscapeEngine:
         if patch is not None:
             patch.transform_preset = transform_preset
 
+    def set_root(self, target_midi):
+        self._root_target = float(target_midi)
+
     def generate_block(self, frames):
         patches = list(self._patches.values())
         active_ids = [p.id for p in patches]
         self.sources.sync(active_ids)
         self.transforms.sync(active_ids)
 
+        # Glide the shared root toward its target (~0.4 s regardless of block
+        # size) so a live slider re-pitches sounding voices smoothly.
+        glide_k = 1.0 - np.exp(-(frames / self.samplerate) / 0.4)
+        self._root_current += glide_k * (self._root_target - self._root_current)
+        self.field.root_midi = self._root_current
+
+        conductor_gains = self.conductor.update(active_ids, frames)
         if not patches:
             return np.zeros(frames, dtype=np.float32)
 
         density = min(1.0, len(patches) / 20.0)
-        roles = assign_voice_roles(self._connect_order)
         voice_gain = self.gain_smoother.update(len(patches))
 
         mix = np.zeros(frames, dtype=np.float64)
@@ -78,8 +91,16 @@ class SoundscapeEngine:
                 rng = np.random.default_rng(patch.id)
                 self._assignments[patch.id] = self.allocator.allocate(patch.id, rng, density, detune_class)
             assignment = self._assignments[patch.id]
-            role_gain = ROLE_GAIN[roles.get(patch.id, "dormant")]
-            if role_gain <= 0.0:
+            # Re-derive pitch from the glided root, preserving the role, octave
+            # and detune the allocator chose (parallel shift of all tonal voices).
+            assignment.midi = (
+                self._root_current
+                + ROLE_SEMITONES[assignment.harmonic_role]
+                + 12 * assignment.octave
+                + assignment.detune_cents / 100.0
+            )
+            gain = conductor_gains.get(patch.id, 0.0)
+            if gain <= 1e-6:
                 continue
             voice = self.sources.render(
                 patch.id, patch.source_preset, assignment,
@@ -87,7 +108,7 @@ class SoundscapeEngine:
             )
             if patch.transform_preset:
                 voice = self.transforms.render(patch.id, patch.transform_preset, voice, patch.bpm)
-            mix += voice * role_gain * voice_gain
+            mix += voice * gain * voice_gain
 
         mixed = self.limiter.process(mix.astype(np.float32))
         return soft_clip(mixed).astype(np.float32)
