@@ -145,9 +145,10 @@ def _can_add_patch_source(sources):
 
 
 class RedPoleGUI:
-    def __init__(self, root, engine, default_loop_path):
+    def __init__(self, root, engine, synth_engine, default_loop_path):
         self.root = root
         self.engine = engine
+        self.synth_engine = synth_engine
         self.root.title("RedPole Audio Prototype")
         self._layer_rows = {}
         self._source_colors = {}
@@ -160,17 +161,26 @@ class RedPoleGUI:
         self.bpm_var = tk.StringVar(value="70")
         self.wet_dry_var = tk.DoubleVar(value=self.engine.wet_dry)
 
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+        self.loop_tab = ttk.Frame(self.notebook)
+        self.synth_tab_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.loop_tab, text="Loop")
+        self.notebook.add(self.synth_tab_frame, text="Synth")
+
         self._build_layout_frames()
         self._build_controls()
         self._build_audition_controls()
         self._build_layer_list()
         self._build_waveform()
         self._build_patch_bay()
+        self._build_synth_tab()
         self._load_initial_loop(default_loop_path)
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self._schedule_refresh()
 
     def _build_layout_frames(self):
-        self.left_column = ttk.Frame(self.root)
+        self.left_column = ttk.Frame(self.loop_tab)
         self.left_column.grid(**LEFT_COLUMN_GRID)
         self.left_column.columnconfigure(0, weight=1)
         self.left_column.rowconfigure(LEFT_STACK_ROWS["scan_sources"], weight=1)
@@ -394,11 +404,11 @@ class RedPoleGUI:
     # ---------- audio / waveform ----------
 
     def _build_waveform(self):
-        frame = ttk.LabelFrame(self.root, text="Waveform")
+        frame = ttk.LabelFrame(self.loop_tab, text="Waveform")
         frame.grid(row=1, column=1, sticky="nsew", padx=8, pady=(0, 8))
-        self.root.columnconfigure(1, weight=1)
-        self.root.rowconfigure(0, weight=3)
-        self.root.rowconfigure(1, weight=1)
+        self.loop_tab.columnconfigure(1, weight=1)
+        self.loop_tab.rowconfigure(0, weight=3)
+        self.loop_tab.rowconfigure(1, weight=1)
 
         fig = Figure(figsize=WAVEFORM_FIGSIZE)
         self.ax = fig.add_subplot(111)
@@ -432,7 +442,7 @@ class RedPoleGUI:
     # ---------- patch bay ----------
 
     def _build_patch_bay(self):
-        frame = ttk.LabelFrame(self.root, text="Patch Bay")
+        frame = ttk.LabelFrame(self.loop_tab, text="Patch Bay")
         frame.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
         self.patch_canvas = tk.Canvas(
             frame,
@@ -446,6 +456,25 @@ class RedPoleGUI:
         self.patch_canvas.bind("<B1-Motion>", self._on_patch_drag)
         self.patch_canvas.bind("<ButtonRelease-1>", self._on_patch_release)
         self._redraw_patch_bay()
+
+    def _build_synth_tab(self):
+        from synth_tab import SynthTab  # lazy import avoids gui<->synth_tab cycle
+
+        self.synth_tab = SynthTab(self.synth_tab_frame, self.synth_engine)
+
+    def _on_tab_changed(self, _event):
+        tab = self.notebook.tab(self.notebook.select(), "text")
+        if tab == "Synth":
+            self.engine.pause()
+            try:
+                self.synth_engine.resume()
+            except Exception as exc:  # audio device failed to open
+                messagebox.showerror("Synth audio", f"Could not start synth audio: {exc}")
+                self.notebook.select(self.loop_tab)
+                self.engine.resume()
+        else:
+            self.synth_engine.pause()
+            self.engine.resume()
 
     def _source_positions(self):
         sources = self.engine.registry.sources_snapshot()
@@ -652,6 +681,8 @@ class RedPoleGUI:
         self.root.after(REFRESH_MS, self._schedule_refresh)
 
     def _refresh_waveform(self):
+        if self.notebook.tab(self.notebook.select(), "text") != "Loop":
+            return
         data = self.engine.visual_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         warble = self.engine.warble_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
         bloom = self.engine.bloom_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)

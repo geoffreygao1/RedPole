@@ -1231,7 +1231,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `synth_tab.SynthTab` (lazy import inside a method to avoid an import cycle — `synth_tab` imports `gui` at module level).
 - Produces: `RedPoleGUI(root, engine, synth_engine, default_loop_path)` — a `ttk.Notebook` with "Loop" (existing widgets, reparented, behavior unchanged) and "Synth" tabs; `<<NotebookTabChanged>>` pauses the outgoing engine and resumes the incoming one. Adds `.notebook`, `.loop_tab`, `.synth_tab_frame`, `.synth_tab`, `._on_tab_changed(event)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # append to audio_prototype/tests/test_gui.py
@@ -1295,12 +1295,12 @@ def test_switching_to_synth_tab_pauses_loop_and_resumes_synth():
 
 > Note: the second test is intentionally skipped — fully constructing `RedPoleGUI` needs a loaded loop and audio device, which belongs to the manual launch check in Task 8. The `inspect`-based signature test is the real automated guard that the constructor gained `synth_engine` without breaking its shape.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_gui.py -k synth_engine -v`
 Expected: FAIL — `AssertionError` on the parameter-list check (current signature is `[self, root, engine, default_loop_path]`).
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Make these edits to `gui.py`:
 
@@ -1411,12 +1411,12 @@ Make these edits to `gui.py`:
         self.canvas.draw_idle()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_gui.py -v`
 Expected: PASS — the signature test passes and every pre-existing `test_gui` helper test is unchanged (they import module-level helpers/constants, none of which moved).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/gui.py audio_prototype/tests/test_gui.py
