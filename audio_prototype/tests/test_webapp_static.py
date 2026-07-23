@@ -114,6 +114,13 @@ def test_synth_patch_controls_are_midi_style_knobs_with_mood_palette():
     assert ".knob-control input[type=\"range\"] {" in style_css
 
 
+def test_synth_wash_controls_default_to_seventy_percent():
+    index_html = (ROOT / "webapp" / "index.html").read_text()
+
+    assert '<input id="reverb-slider" type="range" min="0" max="1.5" step="0.01" value="1.05" /><output>70%</output>' in index_html
+    assert '<input id="delay-slider" type="range" min="0" max="1" step="0.01" value="0.7" /><output>70%</output>' in index_html
+
+
 def test_root_knob_controls_integer_note_names_not_raw_midi_numbers():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
