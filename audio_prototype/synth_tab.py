@@ -63,15 +63,6 @@ SYNTH_PATCH_LIMIT = 25
 WAVEFORM_POINTS = 480
 VARIANT_LABELS = ("I", "II", "III", "IV", "V")   # per-column preset variant labels
 
-_INSTRUMENT_LABELS = {p["id"]: p["instrument"] for p in SOURCE_PRESETS if p["engine"] == "instrument"}
-
-
-def source_col_label(row, col):
-    """Column label for the source grid: instrument name on instrument rows,
-    generic variant label (I..V) on granular/resonant rows."""
-    preset_id = source_preset_id(row, col)
-    return _INSTRUMENT_LABELS.get(preset_id, VARIANT_LABELS[col])
-
 
 def _cell_center(origin, row, col):
     ox, oy = origin
@@ -106,21 +97,27 @@ def transform_cell_at(x, y):
 
 
 class SynthPatchModel:
-    """Pure state for the web-app-style synth workflow (no Tk): scanned
-    sources are single-use; assigning one onto a generator jack consumes it
-    and creates an engine voice; cabling that jack to a modifier sets the
-    voice's transform. `engine` is a SoundscapeEngine / SynthAudioEngine."""
+    """Pure state for the web-app-style synth workflow (no Tk). Scanned sources
+    are single-use. Assigning one onto a generator jack *places* it there --
+    it just colors the jack and stays SILENT (no engine voice yet). A voice is
+    created only when the placement is cabled to a modifier; pulling the cable
+    off silences it again. A placement can also be moved to a different
+    generator jack (reassigning its source preset). `engine` is a
+    SoundscapeEngine / SynthAudioEngine.
+
+    placements: source_cell -> {hue,sat,val,bpm,color,source_id,source_cell,
+                                transform_cell,transform_id,pid,client_id}
+    where pid is None while the placement is silent (no modifier)."""
 
     def __init__(self, engine, limit=SYNTH_PATCH_LIMIT):
         self.engine = engine
         self.limit = limit
         self._next_client_id = 1
         self.sources = {}      # cid -> {hue,sat,val,bpm,color}
-        self.voices = {}       # pid -> {source_cell,transform_cell,color,bpm,source_id,transform_id,client_id}
-        self.jack_to_pid = {}  # source_cell -> pid
+        self.placements = {}   # source_cell -> placement dict (see class doc)
 
     def total_count(self):
-        return len(self.sources) + len(self.voices)
+        return len(self.sources) + len(self.placements)
 
     def add_source(self, hue, sat, val, bpm, color):
         if self.total_count() >= self.limit:
@@ -134,44 +131,73 @@ class SynthPatchModel:
         self.sources.pop(cid, None)
 
     def assign_source_to_generator(self, cid, source_cell):
+        """Consume the source and place it (silent) on the generator jack.
+        Returns the placement key (source_cell) or None. Replaces any existing
+        placement on that jack."""
         src = self.sources.get(cid)
         if src is None:
             return None
-        occupant = self.jack_to_pid.get(source_cell)
-        if occupant is not None:
-            self.remove_voice(occupant)
-        source_id = source_preset_id(*source_cell)
-        pid = self.engine.connect_patch(
-            src["hue"], src["sat"], src["val"], src["bpm"], source_id, None
-        )
-        self.voices[pid] = {
+        if source_cell in self.placements:
+            self.remove_placement(source_cell)
+        self.placements[source_cell] = {
+            "hue": src["hue"], "sat": src["sat"], "val": src["val"],
+            "bpm": src["bpm"], "color": src["color"],
+            "source_id": source_preset_id(*source_cell),
             "source_cell": source_cell,
-            "transform_cell": None,
-            "color": src["color"],
-            "bpm": src["bpm"],
-            "source_id": source_id,
-            "transform_id": None,
-            "client_id": cid,
+            "transform_cell": None, "transform_id": None,
+            "pid": None, "client_id": cid,
         }
-        self.jack_to_pid[source_cell] = pid
         del self.sources[cid]
-        return pid
+        return source_cell
 
-    def set_voice_transform(self, pid, transform_cell):
-        voice = self.voices.get(pid)
-        if voice is None:
+    def set_placement_transform(self, source_cell, transform_cell):
+        """Cable the placement to a modifier (creates the voice on first
+        connect), retarget it, or (transform_cell=None) pull the cable and
+        silence the voice again."""
+        p = self.placements.get(source_cell)
+        if p is None:
             return
-        transform_id = transform_preset_id(*transform_cell) if transform_cell is not None else None
-        self.engine.set_patch_transform(pid, transform_id)
-        voice["transform_cell"] = transform_cell
-        voice["transform_id"] = transform_id
+        if transform_cell is None:
+            if p["pid"] is not None:
+                self.engine.disconnect_patch(p["pid"])
+                p["pid"] = None
+            p["transform_cell"] = None
+            p["transform_id"] = None
+            return
+        transform_id = transform_preset_id(*transform_cell)
+        if p["pid"] is None:
+            p["pid"] = self.engine.connect_patch(
+                p["hue"], p["sat"], p["val"], p["bpm"], p["source_id"], transform_id
+            )
+        else:
+            self.engine.set_patch_transform(p["pid"], transform_id)
+        p["transform_cell"] = transform_cell
+        p["transform_id"] = transform_id
 
-    def remove_voice(self, pid):
-        voice = self.voices.pop(pid, None)
-        if voice is None:
-            return
-        self.engine.disconnect_patch(pid)
-        self.jack_to_pid.pop(voice["source_cell"], None)
+    def move_placement(self, source_cell, new_cell):
+        """Reassign a placement to a different generator jack (new source
+        preset). Replaces any occupant of new_cell. Reconnects with the new
+        source if it was sounding. Returns new_cell or None."""
+        p = self.placements.get(source_cell)
+        if p is None or new_cell == source_cell:
+            return None
+        if new_cell in self.placements:
+            self.remove_placement(new_cell)
+        del self.placements[source_cell]
+        p["source_cell"] = new_cell
+        p["source_id"] = source_preset_id(*new_cell)
+        self.placements[new_cell] = p
+        if p["pid"] is not None:
+            self.engine.disconnect_patch(p["pid"])
+            p["pid"] = self.engine.connect_patch(
+                p["hue"], p["sat"], p["val"], p["bpm"], p["source_id"], p["transform_id"]
+            )
+        return new_cell
+
+    def remove_placement(self, source_cell):
+        p = self.placements.pop(source_cell, None)
+        if p is not None and p["pid"] is not None:
+            self.engine.disconnect_patch(p["pid"])
 
 
 import colorsys
@@ -208,9 +234,8 @@ class SynthTab:
         self.refresh_ms = REFRESH_MS
 
         self._selected_source_id = None
-        self._source_rows = {}      # cid -> row frame
-        self._voice_rows = {}       # pid -> row frame
-        self._drag_from_pid = None  # cabling from a placed generator jack
+        self._source_rows = {}       # cid -> row frame
+        self._drag_from_cell = None  # dragging from a placed generator jack (source_cell)
         self._drag_pos = None
 
         self.hue_var = tk.DoubleVar(value=0.0)
@@ -279,7 +304,7 @@ class SynthTab:
         washbox.pack(fill="x", pady=(8, 0))
         ttk.Label(washbox, text="Reverb").grid(row=0, column=0, sticky="w", padx=4)
         self.reverb_scale = ttk.Scale(
-            washbox, from_=0.0, to=1.0, orient="horizontal", command=self._on_reverb
+            washbox, from_=0.0, to=1.5, orient="horizontal", command=self._on_reverb
         )
         self.reverb_scale.set(self.engine.engine.wash.reverb_amount)
         self.reverb_scale.grid(row=0, column=1, sticky="ew", padx=4, pady=2)
@@ -460,74 +485,83 @@ class SynthTab:
     def _redraw_bay(self):
         c = self.bay
         c.delete("all")
-        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "generators", col_label=source_col_label)
+        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "generators")
         self._draw_grid(SYNTH_TRANSFORM_ORIGIN, SYNTH_TRANSFORM_ROWS, "modifiers")
 
         source_fill = {}
         transform_fill = {}
-        for voice in self.model.voices.values():
-            source_fill[voice["source_cell"]] = voice["color"]
-            if voice["transform_cell"] is not None:
-                transform_fill[voice["transform_cell"]] = voice["color"]
+        for p in self.model.placements.values():
+            source_fill[p["source_cell"]] = p["color"]
+            if p["transform_cell"] is not None:
+                transform_fill[p["transform_cell"]] = p["color"]
 
-        for voice in self.model.voices.values():
-            sx, sy = source_cell_center(*voice["source_cell"])
-            if voice["transform_cell"] is not None:
-                tx, ty = transform_cell_center(*voice["transform_cell"])
-                c.create_line(*_patch_cable_points(sx, sy, tx, ty), fill=voice["color"], width=3)
-            else:
-                c.create_line(sx, sy, sx + 18, sy, fill=voice["color"], width=3)
+        # A placement only draws a cable once it is connected to a modifier; an
+        # unconnected placement is silent and shown just by its colored jack.
+        for p in self.model.placements.values():
+            if p["transform_cell"] is not None:
+                sx, sy = source_cell_center(*p["source_cell"])
+                tx, ty = transform_cell_center(*p["transform_cell"])
+                c.create_line(*_patch_cable_points(sx, sy, tx, ty), fill=p["color"], width=3)
 
-        if self._drag_from_pid is not None and self._drag_pos is not None:
-            voice = self.model.voices.get(self._drag_from_pid)
-            if voice is not None:
-                sx, sy = source_cell_center(*voice["source_cell"])
+        if self._drag_from_cell is not None and self._drag_pos is not None:
+            p = self.model.placements.get(self._drag_from_cell)
+            if p is not None:
+                sx, sy = source_cell_center(*self._drag_from_cell)
                 c.create_line(*_patch_cable_points(sx, sy, *self._drag_pos),
-                              fill=voice["color"], width=2, dash=(4, 3))
+                              fill=p["color"], width=2, dash=(4, 3))
 
         self._draw_jacks(SYNTH_SOURCE_ORIGIN, source_fill)
         self._draw_jacks(SYNTH_TRANSFORM_ORIGIN, transform_fill)
 
     def _on_press(self, event):
-        self._drag_from_pid = None
+        self._drag_from_cell = None
         self._drag_pos = None
         cell = source_cell_at(event.x, event.y)
-        if cell is not None and cell in self.model.jack_to_pid:
-            # press on a placed generator jack -> begin a modifier cable
-            self._drag_from_pid = self.model.jack_to_pid[cell]
+        if cell is not None and cell in self.model.placements:
+            # press on a placed generator jack -> begin a drag (to a modifier,
+            # or to another generator jack to reassign)
+            self._drag_from_cell = cell
 
     def _on_drag(self, event):
-        if self._drag_from_pid is None:
+        if self._drag_from_cell is None:
             return
         self._drag_pos = (event.x, event.y)
         self._redraw_bay()
 
     def _on_release(self, event):
-        if self._drag_from_pid is not None:
-            pid = self._drag_from_pid
-            self._drag_from_pid = None
+        if self._drag_from_cell is not None:
+            cell = self._drag_from_cell
+            self._drag_from_cell = None
             self._drag_pos = None
             transform_cell = transform_cell_at(event.x, event.y)
-            self.model.set_voice_transform(pid, transform_cell)
+            source_cell = source_cell_at(event.x, event.y)
+            if transform_cell is not None:
+                self.model.set_placement_transform(cell, transform_cell)   # cable to modifier
+            elif source_cell is not None and source_cell != cell:
+                self.model.move_placement(cell, source_cell)               # reassign jack
+            elif source_cell is None:
+                self.model.set_placement_transform(cell, None)             # off-grid: unpatch, silence
+            # released on itself -> no-op
+            self._refresh_placement_list()
             self._redraw_bay()
             return
-        # no cable in progress: click-assign the selected source onto a generator jack
+        # no drag in progress: click-assign the selected source onto a generator jack
         cell = source_cell_at(event.x, event.y)
         if cell is not None and self._selected_source_id is not None:
             cid = self._selected_source_id
-            pid = self.model.assign_source_to_generator(cid, cell)
-            if pid is not None:
+            placed = self.model.assign_source_to_generator(cid, cell)
+            if placed is not None:
                 self._selected_source_id = None
                 row = self._source_rows.pop(cid, None)
                 if row is not None:
                     row.destroy()
-                self._add_voice_row(pid)
+                self._refresh_placement_list()
                 self._redraw_bay()
 
     # ---------- voice list ----------
 
     def _build_voice_list(self):
-        box = ttk.LabelFrame(self.frame, text="Active voices")
+        box = ttk.LabelFrame(self.frame, text="Placed sources")
         box.grid(row=1, column=1, sticky="nsew", padx=8, pady=(0, 8))
         canvas = tk.Canvas(box, height=120, highlightthickness=0)
         scrollbar = ttk.Scrollbar(box, orient="vertical", command=canvas.yview)
@@ -541,25 +575,29 @@ class SynthTab:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-    def _add_voice_row(self, pid):
-        voice = self.model.voices[pid]
-        row = ttk.Frame(self.voice_list_frame)
-        row.pack(fill="x", pady=2)
-        tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=voice["color"]).pack(
-            side="left", padx=(0, 6)
-        )
-        label = f"#{pid}  {voice['source_id']}  (BPM {voice['bpm']:.0f})"
-        lbl = ttk.Label(row, text=label)
-        lbl.pack(side="left", padx=(0, 8))
-        voice["_label_widget"] = lbl
-        ttk.Button(row, text="Remove", command=lambda: self._remove_voice(pid)).pack(side="right")
-        self._voice_rows[pid] = row
+    def _refresh_placement_list(self):
+        # Rebuilt from scratch on each change -- moves re-key placements by
+        # source_cell, so a per-row cache would go stale.
+        for widget in self.voice_list_frame.winfo_children():
+            widget.destroy()
+        for source_cell, p in self.model.placements.items():
+            row = ttk.Frame(self.voice_list_frame)
+            row.pack(fill="x", pady=2)
+            tk.Canvas(row, width=16, height=16, highlightthickness=1, bg=p["color"]).pack(
+                side="left", padx=(0, 6)
+            )
+            if p["transform_id"]:
+                label = f"{p['source_id']} -> {p['transform_id']}  (BPM {p['bpm']:.0f})"
+            else:
+                label = f"{p['source_id']}  (silent - cable to a modifier)"
+            ttk.Label(row, text=label).pack(side="left", padx=(0, 8))
+            ttk.Button(
+                row, text="Remove", command=lambda sc=source_cell: self._remove_placement(sc)
+            ).pack(side="right")
 
-    def _remove_voice(self, pid):
-        self.model.remove_voice(pid)
-        row = self._voice_rows.pop(pid, None)
-        if row is not None:
-            row.destroy()
+    def _remove_placement(self, source_cell):
+        self.model.remove_placement(source_cell)
+        self._refresh_placement_list()
         self._redraw_bay()
 
     # ---------- waveform ----------

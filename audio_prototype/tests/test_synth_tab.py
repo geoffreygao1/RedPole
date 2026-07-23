@@ -42,21 +42,6 @@ def test_transform_grid_covers_all_25_transform_presets():
     assert len(ids) == 25
 
 
-def test_instrument_rows_map_to_expected_instruments():
-    from soundscape_instruments import INSTRUMENT_GRID
-    from synth_tab import source_col_label
-    for row_idx, behavior in enumerate(SYNTH_SOURCE_ROWS):
-        if behavior in INSTRUMENT_GRID:
-            got = [source_col_label(row_idx, c) for c in range(SYNTH_GRID_SIZE)]
-            assert got == INSTRUMENT_GRID[behavior]
-
-
-def test_granular_resonant_rows_use_variant_labels():
-    from synth_tab import source_col_label, VARIANT_LABELS
-    assert source_col_label(0, 2) == VARIANT_LABELS[2]   # granular
-    assert source_col_label(1, 4) == VARIANT_LABELS[4]   # resonant
-
-
 def test_root_note_choices_span_c2_to_c4():
     assert ROOT_NOTE_CHOICES[0] == ("C2", 36)
     assert ROOT_NOTE_CHOICES[-1] == ("C4", 60)   # C4 is the ceiling
@@ -97,7 +82,7 @@ class _Ev:
         self.y = y
 
 
-def test_send_then_click_assign_creates_source_only_voice():
+def test_click_assign_colors_jack_but_stays_silent():
     root = _tk_root_or_skip()
     try:
         eng = SynthAudioEngine(seed=1)
@@ -106,19 +91,17 @@ def test_send_then_click_assign_creates_source_only_voice():
         tab._on_send()
         cid = next(iter(tab.model.sources))
         tab._select_source(cid)
-        gx, gy = source_cell_center(0, 1)              # granular_2
+        gx, gy = source_cell_center(2, 0)              # pluck/piano
         tab._on_press(_Ev(gx, gy))
         tab._on_release(_Ev(gx, gy))                   # click, no drag
-        patches = eng.active_patches()
-        assert len(patches) == 1
-        assert patches[0]["source_preset"] == "granular_2"
-        assert patches[0]["transform_preset"] is None
+        assert eng.active_patches() == []              # silent until a modifier
+        assert (2, 0) in tab.model.placements
         assert not tab.model.sources                   # source consumed
     finally:
         root.destroy()
 
 
-def test_cable_from_placed_generator_jack_to_modifier_sets_transform():
+def test_cable_to_modifier_starts_the_voice():
     root = _tk_root_or_skip()
     try:
         eng = SynthAudioEngine(seed=1)
@@ -127,12 +110,39 @@ def test_cable_from_placed_generator_jack_to_modifier_sets_transform():
         tab._on_send()
         cid = next(iter(tab.model.sources))
         tab._select_source(cid)
-        gx, gy = source_cell_center(0, 0)
+        gx, gy = source_cell_center(2, 0)              # pluck/piano
         tab._on_press(_Ev(gx, gy)); tab._on_release(_Ev(gx, gy))
         tab._on_press(_Ev(gx, gy))                     # press placed jack -> cable
         tx, ty = transform_cell_center(0, 0)           # delay_1
         tab._on_release(_Ev(tx, ty))
-        assert eng.active_patches()[0]["transform_preset"] == "delay_1"
+        patches = eng.active_patches()
+        assert len(patches) == 1
+        assert patches[0]["source_preset"] == "pluck_piano"
+        assert patches[0]["transform_preset"] == "delay_1"
+    finally:
+        root.destroy()
+
+
+def test_drag_placed_jack_to_another_generator_reassigns_source():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        tab.bpm_var.set("90")
+        tab._on_send()
+        cid = next(iter(tab.model.sources))
+        tab._select_source(cid)
+        ax, ay = source_cell_center(2, 0)              # pluck/piano
+        tab._on_press(_Ev(ax, ay)); tab._on_release(_Ev(ax, ay))
+        tab._on_press(_Ev(ax, ay))                     # place a modifier so it sounds
+        tab._on_release(_Ev(*transform_cell_center(0, 0)))
+        # drag the placed jack to pluck/guitar
+        tab._on_press(_Ev(ax, ay))
+        bx, by = source_cell_center(2, 1)              # pluck/guitar
+        tab._on_release(_Ev(bx, by))
+        assert (2, 0) not in tab.model.placements
+        assert (2, 1) in tab.model.placements
+        assert eng.active_patches()[0]["source_preset"] == "pluck_guitar"
     finally:
         root.destroy()
 
