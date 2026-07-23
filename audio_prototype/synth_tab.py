@@ -8,7 +8,7 @@ from soundscape_sources import SOURCE_PRESETS
 from soundscape_transforms import TRANSFORM_PRESETS
 
 SYNTH_GRID_SIZE = 5
-SYNTH_SOURCE_ROWS = ("additive", "granular", "resonant", "noise", "texture")
+SYNTH_SOURCE_ROWS = ("granular", "resonant", "pluck", "pad", "bloom")
 SYNTH_TRANSFORM_ROWS = ("delay", "spectral", "pitch", "grainfx", "spatial")
 
 BPM_MIN = 20.0
@@ -18,10 +18,10 @@ _NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
 def _grouped(presets, rows):
-    by_engine = {}
+    by_row = {}
     for p in presets:
-        by_engine.setdefault(p["engine"], []).append(p["id"])
-    return [tuple(by_engine[row]) for row in rows]
+        by_row.setdefault(p.get("row", p["engine"]), []).append(p["id"])
+    return [tuple(by_row[row]) for row in rows]
 
 
 _SOURCE_GRID = _grouped(SOURCE_PRESETS, SYNTH_SOURCE_ROWS)
@@ -62,6 +62,15 @@ SYNTH_TRANSFORM_ORIGIN = (620, 60)   # (x, y) top-left of the transform grid
 SYNTH_PATCH_LIMIT = 25
 WAVEFORM_POINTS = 480
 VARIANT_LABELS = ("I", "II", "III", "IV", "V")   # per-column preset variant labels
+
+_INSTRUMENT_LABELS = {p["id"]: p["instrument"] for p in SOURCE_PRESETS if p["engine"] == "instrument"}
+
+
+def source_col_label(row, col):
+    """Column label for the source grid: instrument name on instrument rows,
+    generic variant label (I..V) on granular/resonant rows."""
+    preset_id = source_preset_id(row, col)
+    return _INSTRUMENT_LABELS.get(preset_id, VARIANT_LABELS[col])
 
 
 def _cell_center(origin, row, col):

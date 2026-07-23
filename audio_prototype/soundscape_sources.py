@@ -9,6 +9,7 @@ import numpy as np
 
 from soundscape_color import calibrate_color
 from soundscape_harmony import midi_to_hz
+from soundscape_instruments import INSTRUMENT_PRESETS, InstrumentBank, InstrumentSource
 from soundscape_voices import sync_voices
 from synth_source import SeedBank
 
@@ -316,7 +317,9 @@ for _engine_name, _presets in (
     ("texture", TEXTURE_PRESETS),
 ):
     for _p in _presets:
-        SOURCE_PRESETS.append({**_p, "engine": _engine_name})
+        SOURCE_PRESETS.append({**_p, "engine": _engine_name, "row": _engine_name})
+
+SOURCE_PRESETS.extend(INSTRUMENT_PRESETS)
 
 
 class SourceBank:
@@ -329,6 +332,8 @@ class SourceBank:
         self.resonant = ResonantPulseSource(samplerate, seed=seed)
         self.noise = FilteredNoiseSource(samplerate, seed=seed)
         self.texture = SampleTextureSource(samplerate, seed=seed)
+        self.instruments = InstrumentBank(samplerate, seed=seed)
+        self.instrument = InstrumentSource(self.instruments, samplerate, seed=seed)
         self._by_id = {p["id"]: p for p in SOURCE_PRESETS}
 
     def preset(self, preset_id):
@@ -348,6 +353,8 @@ class SourceBank:
             return self.noise.render(vid, timbre, frames, preset)
         if engine == "texture":
             return self.texture.render(vid, frames, preset)
+        if engine == "instrument":
+            return self.instrument.render(vid, preset, assignment, bpm, frames)
         raise ValueError(f"unknown source engine {engine!r}")
 
     def sync(self, active_ids):
@@ -356,3 +363,4 @@ class SourceBank:
         self.resonant.sync(active_ids)
         self.noise.sync(active_ids)
         self.texture.sync(active_ids)
+        self.instrument.sync(active_ids)

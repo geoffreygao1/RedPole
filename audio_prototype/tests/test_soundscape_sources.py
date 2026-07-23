@@ -254,9 +254,9 @@ def test_texture_voice_dropped_on_sync():
 from soundscape_sources import SOURCE_PRESETS, SourceBank
 
 
-def test_source_presets_has_exactly_25_unique_ids():
-    assert len(SOURCE_PRESETS) == 25
-    assert len({p["id"] for p in SOURCE_PRESETS}) == 25
+def test_source_presets_has_exactly_40_unique_ids():
+    assert len(SOURCE_PRESETS) == 40
+    assert len({p["id"] for p in SOURCE_PRESETS}) == 40
 
 
 def test_source_bank_renders_every_preset_without_error():

@@ -13,14 +13,23 @@ from synth_tab import (
 )
 
 
-def test_source_grid_covers_all_25_source_presets():
+def test_source_grid_rows_are_the_soundbath_rows():
+    assert SYNTH_SOURCE_ROWS == ("granular", "resonant", "pluck", "pad", "bloom")
+
+
+def test_source_grid_covers_25_cells_from_declared_rows():
+    from soundscape_sources import SOURCE_PRESETS
     ids = {
         source_preset_id(r, c)
         for r in range(SYNTH_GRID_SIZE)
         for c in range(SYNTH_GRID_SIZE)
     }
-    assert ids == {p["id"] for p in SOURCE_PRESETS}
     assert len(ids) == 25
+    by_row = {}
+    for p in SOURCE_PRESETS:
+        by_row.setdefault(p["row"], []).append(p["id"])
+    expected = {pid for row in SYNTH_SOURCE_ROWS for pid in by_row[row]}
+    assert ids == expected
 
 
 def test_transform_grid_covers_all_25_transform_presets():
@@ -33,16 +42,19 @@ def test_transform_grid_covers_all_25_transform_presets():
     assert len(ids) == 25
 
 
-def test_grid_rows_map_to_declared_engines():
-    assert SYNTH_SOURCE_ROWS == ("additive", "granular", "resonant", "noise", "texture")
-    assert SYNTH_TRANSFORM_ROWS == ("delay", "spectral", "pitch", "grainfx", "spatial")
-    # every id in a source row belongs to that row's engine
-    by_engine = {}
-    for p in SOURCE_PRESETS:
-        by_engine.setdefault(p["engine"], []).append(p["id"])
-    for r, engine in enumerate(SYNTH_SOURCE_ROWS):
-        row_ids = [source_preset_id(r, c) for c in range(SYNTH_GRID_SIZE)]
-        assert row_ids == by_engine[engine]
+def test_instrument_rows_map_to_expected_instruments():
+    from soundscape_instruments import INSTRUMENT_GRID
+    from synth_tab import source_col_label
+    for row_idx, behavior in enumerate(SYNTH_SOURCE_ROWS):
+        if behavior in INSTRUMENT_GRID:
+            got = [source_col_label(row_idx, c) for c in range(SYNTH_GRID_SIZE)]
+            assert got == INSTRUMENT_GRID[behavior]
+
+
+def test_granular_resonant_rows_use_variant_labels():
+    from synth_tab import source_col_label, VARIANT_LABELS
+    assert source_col_label(0, 2) == VARIANT_LABELS[2]   # granular
+    assert source_col_label(1, 4) == VARIANT_LABELS[4]   # resonant
 
 
 def test_root_note_choices_span_c2_to_c4():
@@ -94,12 +106,12 @@ def test_send_then_click_assign_creates_source_only_voice():
         tab._on_send()
         cid = next(iter(tab.model.sources))
         tab._select_source(cid)
-        gx, gy = source_cell_center(0, 1)              # additive_2
+        gx, gy = source_cell_center(0, 1)              # granular_2
         tab._on_press(_Ev(gx, gy))
         tab._on_release(_Ev(gx, gy))                   # click, no drag
         patches = eng.active_patches()
         assert len(patches) == 1
-        assert patches[0]["source_preset"] == "additive_2"
+        assert patches[0]["source_preset"] == "granular_2"
         assert patches[0]["transform_preset"] is None
         assert not tab.model.sources                   # source consumed
     finally:
