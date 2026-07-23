@@ -1,6 +1,14 @@
 import { Scheduler } from "./scheduler.js";
 import { ToneEngine } from "./tone_engine.js";
-import { TRIGGER_COLS, TRIGGER_ROWS, triggerPresetId } from "./triggers.js";
+import {
+  MACRO_COLS,
+  MACRO_ROWS,
+  SOURCE_GRID,
+  SOURCE_ROWS,
+  macroPresetId,
+  sourceForSlot,
+} from "./soundbath_config.js";
+import { deriveFingerprint } from "./generative/fingerprint.js";
 
 const PATCH_GRID_ROWS = 5;
 const PATCH_GRID_COLS = 5;
@@ -16,14 +24,9 @@ const PATCH_SOURCE_LIMIT = 25;
 // order and engine names sent in connect_source's "engine" field.
 const PATCH_ROW_ENGINES = ["microloop", "granules", "glitch", "multidelay", "tape"];
 const LOOP_ROW_LABELS = ["microloop", "granules", "glitch", "multidelay", "shape"];
-const SYNTH_ROW_LABELS = TRIGGER_ROWS;
-// Two behaviors x 5 columns = 10 cells, covering all 8 clickbath instruments
-// (piano and casio each appear twice, once per behavior).
-const SYNTH_SOURCE_ROWS = ["pluck", "pad"];
-const SYNTH_SOURCE_INSTRUMENTS = [
-  ["piano", "guitar", "tapeguitar", "tapebell", "casio"],
-  ["strings", "flute", "clarinet", "casio", "piano"],
-];
+const SYNTH_ROW_LABELS = MACRO_ROWS;
+const SYNTH_SOURCE_ROWS = SOURCE_ROWS;
+const SYNTH_SOURCE_INSTRUMENTS = SOURCE_GRID;
 const TAPE_ROW_INDEX = PATCH_ROW_ENGINES.indexOf("tape");
 const VARIANT_COL_LABELS = ["I", "II", "III", "IV", "V"];
 
@@ -40,27 +43,6 @@ const FINGER_VAL_MAX = 0.98;
 // button samples from, distinct from the wider 20-300 manual BPM range.
 const RANDOM_BPM_MIN = 45;
 const RANDOM_BPM_MAX = 180;
-
-// Color/BPM now drive the sampler's resampled pitch directly (clickbath-
-// style: hue ~ the Y-axis click position that picked octave/note; BPM is a
-// second parameter, here a fine detune -- like a second click-position axis).
-// Actual note TIMING comes from the destination trigger-grid cell instead.
-const PITCH_SEMITONE_RANGE = 12; // hue spans the picker -> +/-1 octave
-const DETUNE_CENTS_RANGE = 40; // bpm spans 20-300 -> +/- this many cents
-
-function clamp01(x) {
-  return Math.min(1, Math.max(0, x));
-}
-
-function hueToSemitoneOffset(hue) {
-  const fraction = (hue - FINGER_HUE_MIN) / (FINGER_HUE_MAX - FINGER_HUE_MIN || 1);
-  return (clamp01(fraction) * 2 - 1) * PITCH_SEMITONE_RANGE;
-}
-
-function bpmToCentsOffset(bpm) {
-  const fraction = (bpm - 20) / (300 - 20);
-  return (clamp01(fraction) * 2 - 1) * DETUNE_CENTS_RANGE;
-}
 
 function hsvToRgb(h, s, v) {
   const i = Math.floor(h * 6);
@@ -205,6 +187,7 @@ class App {
     this.rootSlider = document.getElementById("root-slider");
     this.reverbSlider = document.getElementById("reverb-slider");
     this.delaySlider = document.getElementById("delay-slider");
+    this.transposeSlider = document.getElementById("transpose-slider");
 
     this.buildPicker();
     this.drawPicker();
@@ -264,6 +247,7 @@ class App {
     toggleLabel(this.rootSlider, !synth); // synth-only
     toggleLabel(this.reverbSlider, !synth);
     toggleLabel(this.delaySlider, !synth);
+    toggleLabel(this.transposeSlider, !synth);
     this.loadLoopButton?.classList.toggle("hidden", synth);
     document.getElementById("debug")?.classList.toggle("hidden", synth);
     this.modeSwitchButton?.classList.toggle("synth", synth);
@@ -281,6 +265,7 @@ class App {
     if (this.rootSlider) this.scheduler.setRoot(parseFloat(this.rootSlider.value));
     if (this.reverbSlider) this.synthEngine.setReverb(parseFloat(this.reverbSlider.value));
     if (this.delaySlider) this.synthEngine.setDelay(parseFloat(this.delaySlider.value));
+    if (this.transposeSlider) this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value));
     this.synthReady = true;
     this.statusEl.classList.add("hidden");
   }
@@ -391,6 +376,11 @@ class App {
       this.delaySlider.addEventListener("input", (e) => {
         if (this.mode !== "synth" || !this.synthEngine) return;
         this.synthEngine.setDelay(parseFloat(e.target.value));
+      });
+    }
+    if (this.transposeSlider) {
+      this.transposeSlider.addEventListener("input", (e) => {
+        this.synthEngine?.setTranspose(parseFloat(e.target.value));
       });
     }
     document.getElementById("load-loop-button").addEventListener("click", () => {
@@ -560,6 +550,13 @@ class App {
       col: null,
       behavior: null,
       instrument: null,
+      fingerprint: deriveFingerprint({
+        hue: pending.hue,
+        sat: pending.sat,
+        val: pending.val,
+        bpm: pending.bpm,
+      }),
+      macroId: null,
     });
     if (this.autoAssignSourcesEl.checked) {
       const slot = this.nextAvailableOutputSlot();
@@ -585,12 +582,7 @@ class App {
   }
 
   synthSourceForSlot(slot) {
-    const row = Math.floor(slot / PATCH_GRID_COLS);
-    const col = slot % PATCH_GRID_COLS;
-    const behavior = SYNTH_SOURCE_ROWS[row];
-    const instrument = SYNTH_SOURCE_INSTRUMENTS[row]?.[col];
-    if (!behavior || !instrument) return null;
-    return { behavior, instrument };
+    return sourceForSlot(slot, PATCH_GRID_COLS);
   }
 
   cellAt(x, y) {
@@ -651,9 +643,10 @@ class App {
       }
     } else if (cell === null) {
       if (this.mode === "synth") {
-        this.scheduler?.setVoiceTrigger(this.dragSourceId, null);
+        this.scheduler?.setVoiceMacro(this.dragSourceId, null);
         source.row = null;
         source.col = null;
+        source.macroId = null;
       } else {
         this.worker.postMessage({ type: "disconnect_source", sourceId: this.dragSourceId });
         source.x = null;
@@ -663,7 +656,7 @@ class App {
         source.col = null;
       }
     } else {
-      this.routeSourceToTrigger(this.dragSourceId, cell);
+      this.routeSourceToMacro(this.dragSourceId, cell);
     }
     this.dragPos = null;
     this.dragSourceId = null;
@@ -724,16 +717,15 @@ class App {
         other.slot = null;
         other.row = null;
         other.col = null;
+        other.macroId = null;
       }
     }
 
-    const row = Math.floor(slot / PATCH_GRID_COLS);
-    const col = slot % PATCH_GRID_COLS;
     const position = outputSlotPosition(slot);
-    const previousTrigger =
+    const previousMacroId =
       this.mode === "synth" && source.row !== null && source.col !== null
-        ? triggerPresetId(source.row, source.col)
-        : null;
+        ? macroPresetId(source.row, source.col)
+        : source.macroId;
     source.slot = slot;
     source.x = position.x;
     source.y = position.y;
@@ -744,6 +736,7 @@ class App {
     }
     source.row = null;
     source.col = null;
+    source.macroId = null;
     if (this.mode === "synth") {
       const config = this.synthSourceForSlot(slot);
       this.scheduler?.removeVoice(sourceId);
@@ -753,28 +746,36 @@ class App {
       this.synthEngine?.createVoice(sourceId, {
         instrument: config.instrument,
         behavior: config.behavior,
+        fingerprint: source.fingerprint,
       });
       this.scheduler?.addVoice(sourceId, {
         behavior: config.behavior,
-        semitoneOffset: hueToSemitoneOffset(source.hue),
-        centsOffset: bpmToCentsOffset(source.bpm),
+        fingerprint: source.fingerprint,
       });
-      if (previousTrigger) {
-        this.scheduler?.setVoiceTrigger(sourceId, previousTrigger);
+      if (previousMacroId) {
+        this.scheduler?.setVoiceMacro(sourceId, previousMacroId);
+        const [, macroRow, macroCol] = previousMacroId.match(/^(.+)_(\d+)$/) ?? [];
+        if (macroRow) {
+          source.row = MACRO_ROWS.indexOf(macroRow);
+          source.col = Number(macroCol) - 1;
+          source.macroId = previousMacroId;
+        }
       }
     }
     this.selectedSourceId = null;
   }
 
-  routeSourceToTrigger(sourceId, cell) {
+  routeSourceToMacro(sourceId, cell) {
     const source = this.sources.get(sourceId);
     if (!source || source.slot === null) return;
     const row = cell.row;
     const col = cell.col;
     if (this.mode === "synth") {
-      this.scheduler?.setVoiceTrigger(sourceId, triggerPresetId(row, col));
+      const macroId = macroPresetId(row, col);
+      this.scheduler?.setVoiceMacro(sourceId, macroId);
       source.row = row;
       source.col = col;
+      source.macroId = macroId;
       return;
     }
     const engine =
@@ -798,7 +799,7 @@ class App {
   }
 
   inputColLabel(col) {
-    return this.mode === "synth" ? TRIGGER_COLS[col] : VARIANT_COL_LABELS[col];
+    return this.mode === "synth" ? MACRO_COLS[col] : VARIANT_COL_LABELS[col];
   }
 
   outputRowLabel(row) {

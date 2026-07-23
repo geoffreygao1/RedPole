@@ -61,6 +61,20 @@ def test_sampler_macro_soundbath_grid_config_is_5x5_and_sample_only():
     assert "export function macroPresetId" in config_js
 
 
+def test_synth_mode_routes_patch_cables_to_macro_grid():
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert 'routeSourceToMacro(sourceId, cell)' in main_js
+    assert 'routeSourceToTrigger' not in main_js
+    assert 'TRIGGER_ROWS' not in main_js
+    assert 'TRIGGER_COLS' not in main_js
+    assert 'triggerPresetId' not in main_js
+    assert 'const SYNTH_ROW_LABELS = MACRO_ROWS;' in main_js
+    assert 'const SYNTH_SOURCE_ROWS = SOURCE_ROWS;' in main_js
+    assert 'const SYNTH_SOURCE_INSTRUMENTS = SOURCE_GRID;' in main_js
+    assert 'this.scheduler?.setVoiceMacro(sourceId, macroId);' in main_js
+
+
 def test_pyodide_worker_loads_synth_bath_processor_before_web_engine():
     worker_js = (ROOT / "webapp" / "worker.js").read_text()
 
