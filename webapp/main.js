@@ -1,4 +1,4 @@
-import { Scheduler } from "./scheduler.js?v=20260723-low-root-default";
+import { Scheduler } from "./scheduler.js?v=20260723-garnish-variation";
 import { ToneEngine } from "./tone_engine.js?v=20260723-wash-reverb";
 import {
   MACRO_COLS,

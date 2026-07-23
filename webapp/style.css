@@ -76,10 +76,10 @@ section h3 {
 
 #patch-bay {
   width: 710px;
+  height: 526px;
 }
 
 #scan-input,
-#patch-bay,
 #sources {
   height: 460px;
 }

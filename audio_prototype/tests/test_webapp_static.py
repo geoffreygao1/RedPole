@@ -163,6 +163,22 @@ def test_harmony_palettes_include_clickbath_style_major_minor_scales():
     assert 'from "./generative/harmony.js?v=20260723-root-note-scale"' in scheduler_js
 
 
+def test_scheduler_adds_sparse_fast_garnishes_without_speeding_sustained_voices():
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+    main_js = (ROOT / "webapp" / "main.js").read_text()
+
+    assert "const GARNISH_BEHAVIORS = new Set([\"pluck\", \"bell\"]);" in scheduler_js
+    assert "const GARNISH_TICK_INTERVAL = 2;" in scheduler_js
+    assert "garnishChance(voice)" in scheduler_js
+    assert "voice.fingerprint?.clusterBias" in scheduler_js
+    assert "voice.fingerprint?.motionBias" in scheduler_js
+    assert "currentTick % GARNISH_TICK_INTERVAL === 0" in scheduler_js
+    assert "this.engine.triggerVoice(id, this.midiForVoice(voice), garnishDuration(voice));" in scheduler_js
+    assert "GARNISH_BEHAVIORS.has(voice.behavior)" in scheduler_js
+    assert "pad\", \"bloom\", \"drone" in scheduler_js
+    assert 'from "./scheduler.js?v=20260723-garnish-variation"' in main_js
+
+
 def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
@@ -173,17 +189,18 @@ def test_patch_bay_arrays_and_knobs_have_balanced_layout():
     assert "const PATCH_GRID_X = 362;" in main_js
     assert 'ctx.fillText("sources", OUTPUT_GRID_X, OUTPUT_GRID_Y - 18);' in main_js
     assert 'ctx.fillText("effects", PATCH_GRID_X, PATCH_GRID_Y - 18);' in main_js
-    assert 'href="style.css?v=20260723-knob-root-transpose"' in index_html
-    assert 'src="main.js?v=20260723-knob-root-transpose"' in index_html
-    assert 'from "./scheduler.js?v=20260723-low-root-default"' in main_js
+    assert 'href="style.css?v=20260723-garnish-variation"' in index_html
+    assert 'src="main.js?v=20260723-garnish-variation"' in index_html
+    assert 'from "./scheduler.js?v=20260723-garnish-variation"' in main_js
     assert '<canvas id="picker" width="180" height="96"></canvas>' in index_html
-    assert '<canvas id="patch-canvas" width="672" height="314"></canvas>' in index_html
+    assert '<canvas id="patch-canvas" width="672" height="380"></canvas>' in index_html
     assert "grid-template-columns: repeat(6, minmax(64px, 1fr));" in style_css
     assert "justify-items: center;" in style_css
     assert "grid-template-columns: 220px 176px 710px;" in style_css
     assert "#scan-input {\n  width: 220px;" in style_css
     assert "#patch-bay {\n  width: 710px;" in style_css
-    assert "#scan-input,\n#patch-bay,\n#sources {\n  height: 460px;" in style_css
+    assert "#patch-bay {\n  width: 710px;\n  height: 526px;" in style_css
+    assert "#scan-input,\n#sources {\n  height: 460px;" in style_css
     assert "height: 500px;" not in style_css
     assert "gap: 8px;" in style_css
     assert "margin-bottom: 10px;" in style_css

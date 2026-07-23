@@ -7,6 +7,8 @@ const ROOT_MIN = 36;
 const ROOT_MAX = 60;
 const TICK_SUBDIVISION = "16n";
 const TICKS_PER_BEAT = 4;
+const GARNISH_BEHAVIORS = new Set(["pluck", "bell"]);
+const GARNISH_TICK_INTERVAL = 2;
 const BEHAVIOR_PERIODS = {
   pluck: [0.5, 6],
   bell: [1, 10],
@@ -30,6 +32,18 @@ function triggerFamily(fingerprint) {
   const phrase = fingerprint?.phraseBias ?? 0.3;
   const index = Math.min(TRIGGER_FAMILIES.length - 1, Math.floor(phrase * TRIGGER_FAMILIES.length));
   return TRIGGER_FAMILIES[index];
+}
+
+function garnishChance(voice) {
+  const density = voice.fingerprint?.densityBias ?? 0.35;
+  const cluster = voice.fingerprint?.clusterBias ?? 0.35;
+  const motion = voice.fingerprint?.motionBias ?? 0.35;
+  const base = voice.behavior === "bell" ? 0.006 : 0.01;
+  return base + density * 0.012 + cluster * 0.01 + motion * 0.008;
+}
+
+function garnishDuration(voice) {
+  return voice.behavior === "bell" ? 0.75 : 0.45;
 }
 
 export class Scheduler {
@@ -125,12 +139,21 @@ export class Scheduler {
       const voice = this.voices.get(id);
       if (!voice) continue;
       const due = (currentTick + voice.tickOffset) % voice.periodTicks === 0;
+      const garnishDue =
+        !due &&
+        voice.burstRemaining <= 0 &&
+        GARNISH_BEHAVIORS.has(voice.behavior) &&
+        currentTick % GARNISH_TICK_INTERVAL === 0;
       if (["pad", "bloom", "drone"].includes(voice.behavior)) {
         if (!this.engine.isVoiceHeld(id)) this.engine.triggerVoice(id, this.midiForVoice(voice), null);
         if (voice.behavior === "bloom" && due && voice.rng() < 0.16 + (voice.fingerprint?.densityBias ?? 0.3) * 0.14) {
           this.engine.releaseVoice(id);
           this.engine.triggerVoice(id, this.midiForVoice(voice), null);
         }
+        continue;
+      }
+      if (garnishDue && voice.rng() < garnishChance(voice) * voice.family.probability) {
+        this.engine.triggerVoice(id, this.midiForVoice(voice), garnishDuration(voice));
         continue;
       }
       if (!due && voice.burstRemaining <= 0) continue;
