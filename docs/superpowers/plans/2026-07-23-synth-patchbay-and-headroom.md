@@ -486,7 +486,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: Task 3 geometry helpers, `source_preset_id`/`transform_preset_id`/`parse_bpm`/`ROOT_NOTE_CHOICES` (existing), `gui._picker_coords_to_hsv`/`_random_scan_values`/`_patch_cable_points`/`PICKER_W`/`PICKER_H`, `SynthAudioEngine` (passed in).
 - Produces: `class SynthTab(parent, synth_engine)` with a canvas bay (`self.bay`), drag handlers `_on_press`/`_on_drag`/`_on_release`, `_connect(source_cell, transform_cell)`, `_remove_patch(pid)`, patch state `self._patches`, and a `tk.Canvas` waveform refreshed only while visible. No buttons, no matplotlib.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the three button-widget tests in `tests/test_synth_tab.py` (`test_synth_tab_builds_two_grids_of_buttons`, `test_synth_tab_connect_adds_a_patch`, `test_synth_tab_connect_without_source_is_noop`) and the now-obsolete `next_selection` import/test with:
 
@@ -561,12 +561,12 @@ def test_remove_patch_disconnects_voice():
 
 Ensure the file still has the `_tk_root_or_skip` helper and `import pytest`, `import tkinter as tk`, `from synth_audio_engine import SynthAudioEngine`, and now also `from synth_tab import SynthTab, source_cell_center, transform_cell_center` at the top of the widget-test section. Remove the `next_selection` import and its `test_next_selection_single_select_toggle` test.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `py -3.11 -m pytest tests/test_synth_tab.py -k "creates_patch or source_only or no_cable or disconnects" -v`
 Expected: FAIL — `AttributeError: 'SynthTab' object has no attribute '_on_press'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `synth_tab.py`, replace **everything from the `import colorsys` line (the widget section) to the end of the file** with the following. (The pure helpers above — presets, root notes, `parse_bpm`, and the Task 3 geometry — stay untouched. Delete the now-unused `next_selection` function too.)
 
@@ -931,12 +931,12 @@ class SynthTab:
         self.parent.after(self.refresh_ms, self._schedule_refresh)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `py -3.11 -m pytest tests/test_synth_tab.py -v`
 Expected: PASS — geometry tests, the retained pure-helper tests (`source_preset_id`/`transform_preset_id`/`ROOT_NOTE_CHOICES`/`parse_bpm`), and the four new drag-cable widget tests. No `next_selection`/button tests remain.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_tab.py audio_prototype/tests/test_synth_tab.py

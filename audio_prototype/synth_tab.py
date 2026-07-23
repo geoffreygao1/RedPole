@@ -42,12 +42,6 @@ def _midi_label(midi):
 ROOT_NOTE_CHOICES = [(_midi_label(m), m) for m in range(48, 85)]  # C3..C6
 
 
-def next_selection(current, clicked):
-    """Single-select toggle: clicking a new cell selects it; clicking the
-    currently-selected cell clears the selection."""
-    return None if current == clicked else clicked
-
-
 def parse_bpm(text):
     try:
         bpm = float(text)
@@ -106,21 +100,24 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 
-from gui import PICKER_H, PICKER_W, _picker_coords_to_hsv, _random_scan_values
+from gui import (
+    PICKER_H,
+    PICKER_W,
+    _patch_cable_points,
+    _picker_coords_to_hsv,
+    _random_scan_values,
+)
 
 WAVEFORM_WINDOW_SAMPLES = 4096
-WAVEFORM_FIGSIZE = (7.2, 1.7)
 REFRESH_MS = 50
-SYNTH_CELL_W = 6  # button width in text units
 
 
 class SynthTab:
-    """Builds the Synth-tab UI: two 5x5 preset grids, a finger-color picker,
-    BPM entry, root-note selector, Connect button, active-patch list, a
-    Load Sample button, and a waveform view fed by the SynthAudioEngine."""
+    """Drag-cable patch bay for the SoundscapeEngine: two 5x5 jack grids
+    (sources left, transforms right). Drag a cable from a source jack to a
+    transform jack to create a voice; release off the transform grid for a
+    source-only voice. Mirrors the Loop tab's cable interaction."""
 
     def __init__(self, parent, synth_engine):
         self.parent = parent
@@ -129,11 +126,11 @@ class SynthTab:
         self.frame.pack(fill="both", expand=True)
         self.refresh_ms = REFRESH_MS
 
-        self.selected_source = None
-        self.selected_transform = None
-        self.source_cells = {}
-        self.transform_cells = {}
+        # patch_id -> {color, source_cell, transform_cell, bpm, source_id, transform_id}
+        self._patches = {}
         self._patch_rows = {}
+        self._drag_source_cell = None
+        self._drag_pos = None
 
         self.hue_var = tk.DoubleVar(value=0.0)
         self.sat_var = tk.DoubleVar(value=0.75)
@@ -141,65 +138,22 @@ class SynthTab:
         self.bpm_var = tk.StringVar(value="70")
         self.root_var = tk.StringVar()
 
-        self._build_grids()
-        self._build_color_controls()
-        self._build_root_control()
-        self._build_action_controls()
+        self._build_controls()
+        self._build_bay()
         self._build_patch_list()
         self._build_waveform()
         self._schedule_refresh()
 
-    # ---------- grids ----------
+    # ---------- left controls ----------
 
-    def _build_grids(self):
-        wrapper = ttk.Frame(self.frame)
-        wrapper.grid(row=0, column=0, columnspan=2, sticky="nw", padx=8, pady=8)
-        self._build_one_grid(
-            wrapper, 0, "Sources", SYNTH_SOURCE_ROWS, self.source_cells,
-            self._select_source,
-        )
-        self._build_one_grid(
-            wrapper, 1, "Transforms (optional)", SYNTH_TRANSFORM_ROWS,
-            self.transform_cells, self._select_transform,
-        )
+    def _build_controls(self):
+        panel = ttk.Frame(self.frame)
+        panel.grid(row=0, column=0, sticky="nw", padx=8, pady=8)
 
-    def _build_one_grid(self, parent, col, title, rows, cells, on_click):
-        box = ttk.LabelFrame(parent, text=title)
-        box.grid(row=0, column=col, sticky="nw", padx=(0, 16))
-        for c in range(SYNTH_GRID_SIZE):
-            ttk.Label(box, text=str(c + 1)).grid(row=0, column=c + 1, padx=1)
-        for r, name in enumerate(rows):
-            ttk.Label(box, text=name).grid(row=r + 1, column=0, sticky="e", padx=(0, 4))
-            for c in range(SYNTH_GRID_SIZE):
-                btn = tk.Button(
-                    box, width=SYNTH_CELL_W, relief="raised",
-                    command=lambda rr=r, cc=c: on_click(rr, cc),
-                )
-                btn.grid(row=r + 1, column=c + 1, padx=1, pady=1)
-                cells[(r, c)] = btn
-
-    def _paint_grid(self, cells, selected):
-        for (r, c), btn in cells.items():
-            btn.configure(
-                relief="sunken" if (r, c) == selected else "raised",
-                bg="#ffd27f" if (r, c) == selected else "SystemButtonFace",
-            )
-
-    def _select_source(self, row, col):
-        self.selected_source = next_selection(self.selected_source, (row, col))
-        self._paint_grid(self.source_cells, self.selected_source)
-
-    def _select_transform(self, row, col):
-        self.selected_transform = next_selection(self.selected_transform, (row, col))
-        self._paint_grid(self.transform_cells, self.selected_transform)
-
-    # ---------- color ----------
-
-    def _build_color_controls(self):
-        frame = ttk.LabelFrame(self.frame, text="Finger color + BPM")
-        frame.grid(row=1, column=0, sticky="nw", padx=8, pady=(0, 8))
+        colorbox = ttk.LabelFrame(panel, text="Finger color + BPM")
+        colorbox.pack(fill="x")
         self.picker = tk.Canvas(
-            frame, width=PICKER_W, height=PICKER_H, highlightthickness=1, cursor="cross"
+            colorbox, width=PICKER_W, height=PICKER_H, highlightthickness=1, cursor="cross"
         )
         self.picker.grid(row=0, column=0, columnspan=3, sticky="w")
         self._picker_image = self._build_picker_image()
@@ -207,15 +161,33 @@ class SynthTab:
         self._marker = self.picker.create_oval(0, 0, 0, 0, outline="white", width=2)
         self.picker.bind("<Button-1>", lambda e: self._set_pick(e.x, e.y))
         self.picker.bind("<B1-Motion>", lambda e: self._set_pick(e.x, e.y))
-
-        ttk.Label(frame, text="BPM").grid(row=1, column=0, sticky="w", pady=(6, 0))
-        ttk.Entry(frame, textvariable=self.bpm_var, width=8).grid(
+        ttk.Label(colorbox, text="BPM").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(colorbox, textvariable=self.bpm_var, width=8).grid(
             row=1, column=1, sticky="w", pady=(6, 0)
         )
-        self.swatch = tk.Canvas(frame, width=40, height=40, highlightthickness=1)
+        self.swatch = tk.Canvas(colorbox, width=40, height=40, highlightthickness=1)
         self.swatch.grid(row=1, column=2, padx=8)
-        ttk.Button(frame, text="Random", command=self._on_random).grid(
+        ttk.Button(colorbox, text="Random", command=self._on_random).grid(
             row=2, column=0, sticky="ew", pady=(8, 0)
+        )
+
+        rootbox = ttk.LabelFrame(panel, text="Harmonic root")
+        rootbox.pack(fill="x", pady=(8, 0))
+        labels = [label for label, _midi in ROOT_NOTE_CHOICES]
+        self._root_by_label = {label: midi for label, midi in ROOT_NOTE_CHOICES}
+        current = next(
+            label for label, midi in ROOT_NOTE_CHOICES if midi == self.engine.root_midi
+        )
+        self.root_var.set(current)
+        ttk.Combobox(
+            rootbox, textvariable=self.root_var, values=labels, state="readonly", width=6
+        ).grid(row=0, column=0, padx=4, pady=4)
+        ttk.Button(rootbox, text="Apply (clears patches)", command=self._on_apply_root).grid(
+            row=0, column=1, padx=4
+        )
+
+        ttk.Button(panel, text="Load Sample...", command=self._on_load_sample).pack(
+            fill="x", pady=(8, 0)
         )
         self._set_pick(PICKER_W // 2, PICKER_H // 2)
 
@@ -253,24 +225,6 @@ class SynthTab:
         self._set_pick(x, y)
         self.bpm_var.set(f"{bpm:.0f}")
 
-    # ---------- root note ----------
-
-    def _build_root_control(self):
-        frame = ttk.LabelFrame(self.frame, text="Harmonic root")
-        frame.grid(row=1, column=1, sticky="nw", padx=8, pady=(0, 8))
-        labels = [label for label, _midi in ROOT_NOTE_CHOICES]
-        self._root_by_label = {label: midi for label, midi in ROOT_NOTE_CHOICES}
-        current = next(
-            label for label, midi in ROOT_NOTE_CHOICES if midi == self.engine.root_midi
-        )
-        self.root_var.set(current)
-        ttk.Combobox(
-            frame, textvariable=self.root_var, values=labels, state="readonly", width=6
-        ).grid(row=0, column=0, padx=4, pady=4)
-        ttk.Button(frame, text="Apply (clears patches)", command=self._on_apply_root).grid(
-            row=0, column=1, padx=4
-        )
-
     def _on_apply_root(self):
         if self.engine.active_patches() and not messagebox.askokcancel(
             "Change root note",
@@ -282,39 +236,8 @@ class SynthTab:
         for row in list(self._patch_rows.values()):
             row.destroy()
         self._patch_rows.clear()
-
-    # ---------- actions ----------
-
-    def _build_action_controls(self):
-        frame = ttk.Frame(self.frame)
-        frame.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
-        ttk.Button(frame, text="Connect patch", command=self._on_connect).grid(
-            row=0, column=0, padx=(0, 8)
-        )
-        ttk.Button(frame, text="Load Sample...", command=self._on_load_sample).grid(
-            row=0, column=1
-        )
-
-    def _on_connect(self):
-        if self.selected_source is None:
-            if self.parent.winfo_viewable():
-                messagebox.showinfo("No source", "Select a source preset first.")
-            return
-        bpm = parse_bpm(self.bpm_var.get())
-        if bpm is None:
-            messagebox.showerror("Invalid BPM", f"BPM must be a number ({self.bpm_var.get()!r}).")
-            return
-        source_id = source_preset_id(*self.selected_source)
-        transform_id = (
-            transform_preset_id(*self.selected_transform)
-            if self.selected_transform is not None
-            else None
-        )
-        pid = self.engine.connect_patch(
-            self.hue_var.get(), self.sat_var.get(), self.val_var.get(),
-            bpm, source_id, transform_id,
-        )
-        self._add_patch_row(pid, bpm, source_id, transform_id, self._color_hex())
+        self._patches.clear()
+        self._redraw_bay()
 
     def _on_load_sample(self):
         path = filedialog.askopenfilename(
@@ -327,15 +250,141 @@ class SynthTab:
         except Exception as exc:
             messagebox.showerror("Failed to load sample", str(exc))
 
+    # ---------- patch bay ----------
+
+    def _build_bay(self):
+        box = ttk.LabelFrame(
+            self.frame, text="Patch bay - drag a source jack to a transform jack"
+        )
+        box.grid(row=0, column=1, sticky="nsew", padx=8, pady=8)
+        self.frame.columnconfigure(1, weight=1)
+        self.frame.rowconfigure(0, weight=1)
+        self.bay = tk.Canvas(
+            box, width=SYNTH_CANVAS_W, height=SYNTH_CANVAS_H,
+            bg="#161616", highlightthickness=0,
+        )
+        self.bay.pack(fill="both", expand=True)
+        self.bay.bind("<Button-1>", self._on_press)
+        self.bay.bind("<B1-Motion>", self._on_drag)
+        self.bay.bind("<ButtonRelease-1>", self._on_release)
+        self._redraw_bay()
+
+    def _draw_grid(self, origin, rows, title):
+        ox, oy = origin
+        c = self.bay
+        c.create_text(ox, oy - 22, text=title, anchor="w", fill="#bdbdbd",
+                      font=("TkDefaultFont", 9))
+        for r, name in enumerate(rows):
+            cy = oy + r * SYNTH_CELL + SYNTH_CELL / 2
+            c.create_text(ox - 10, cy, text=name, anchor="e", fill="#d5d5d5",
+                          font=("TkDefaultFont", 9))
+            for col in range(SYNTH_GRID_SIZE):
+                x0 = ox + col * SYNTH_CELL
+                y0 = oy + r * SYNTH_CELL
+                c.create_rectangle(x0, y0, x0 + SYNTH_CELL, y0 + SYNTH_CELL,
+                                   outline="#444", fill="#222")
+                c.create_text(x0 + 8, y0 + 10, text=VARIANT_LABELS[col],
+                              fill="#808080", font=("TkDefaultFont", 8))
+
+    def _draw_jacks(self, origin, filled):
+        for r in range(SYNTH_GRID_SIZE):
+            for col in range(SYNTH_GRID_SIZE):
+                cx, cy = _cell_center(origin, r, col)
+                color = filled.get((r, col), "#3a3a3a")
+                self.bay.create_oval(
+                    cx - SYNTH_JACK_RADIUS, cy - SYNTH_JACK_RADIUS,
+                    cx + SYNTH_JACK_RADIUS, cy + SYNTH_JACK_RADIUS,
+                    outline="#8a8a8a", fill=color, width=2,
+                )
+
+    def _redraw_bay(self):
+        c = self.bay
+        c.delete("all")
+        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "sources")
+        self._draw_grid(SYNTH_TRANSFORM_ORIGIN, SYNTH_TRANSFORM_ROWS, "transforms")
+
+        source_fill = {}
+        transform_fill = {}
+        for p in self._patches.values():
+            source_fill[p["source_cell"]] = p["color"]
+            if p["transform_cell"] is not None:
+                transform_fill[p["transform_cell"]] = p["color"]
+
+        # cables under the jacks
+        for p in self._patches.values():
+            sx, sy = source_cell_center(*p["source_cell"])
+            if p["transform_cell"] is not None:
+                tx, ty = transform_cell_center(*p["transform_cell"])
+                c.create_line(*_patch_cable_points(sx, sy, tx, ty),
+                              fill=p["color"], width=3)
+            else:
+                c.create_line(sx, sy, sx + 18, sy, fill=p["color"], width=3)
+
+        if self._drag_source_cell is not None and self._drag_pos is not None:
+            sx, sy = source_cell_center(*self._drag_source_cell)
+            c.create_line(*_patch_cable_points(sx, sy, *self._drag_pos),
+                          fill=self._color_hex(), width=2, dash=(4, 3))
+
+        self._draw_jacks(SYNTH_SOURCE_ORIGIN, source_fill)
+        self._draw_jacks(SYNTH_TRANSFORM_ORIGIN, transform_fill)
+
+    def _on_press(self, event):
+        self._drag_source_cell = source_cell_at(event.x, event.y)
+        self._drag_pos = None
+
+    def _on_drag(self, event):
+        if self._drag_source_cell is None:
+            return
+        self._drag_pos = (event.x, event.y)
+        self._redraw_bay()
+
+    def _on_release(self, event):
+        if self._drag_source_cell is None:
+            return
+        source_cell = self._drag_source_cell
+        transform_cell = transform_cell_at(event.x, event.y)
+        self._drag_source_cell = None
+        self._drag_pos = None
+        self._connect(source_cell, transform_cell)
+
+    def _connect(self, source_cell, transform_cell):
+        if len(self._patches) >= SYNTH_PATCH_LIMIT:
+            messagebox.showinfo("Patch bay full", f"Maximum voices reached ({SYNTH_PATCH_LIMIT}).")
+            self._redraw_bay()
+            return
+        bpm = parse_bpm(self.bpm_var.get())
+        if bpm is None:
+            messagebox.showerror("Invalid BPM", f"BPM must be a number ({self.bpm_var.get()!r}).")
+            self._redraw_bay()
+            return
+        source_id = source_preset_id(*source_cell)
+        transform_id = (
+            transform_preset_id(*transform_cell) if transform_cell is not None else None
+        )
+        color = self._color_hex()
+        pid = self.engine.connect_patch(
+            self.hue_var.get(), self.sat_var.get(), self.val_var.get(),
+            bpm, source_id, transform_id,
+        )
+        self._patches[pid] = {
+            "color": color,
+            "source_cell": source_cell,
+            "transform_cell": transform_cell,
+            "bpm": bpm,
+            "source_id": source_id,
+            "transform_id": transform_id,
+        }
+        self._add_patch_row(pid, bpm, source_id, transform_id, color)
+        self._redraw_bay()
+
     # ---------- patch list ----------
 
     def _build_patch_list(self):
-        frame = ttk.LabelFrame(self.frame, text="Active patches")
-        frame.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
-        self.frame.rowconfigure(3, weight=1)
-        self.frame.columnconfigure(0, weight=1)
-        canvas = tk.Canvas(frame, height=140, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        box = ttk.LabelFrame(self.frame, text="Active patches")
+        box.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
+        self.frame.rowconfigure(1, weight=1)
+        canvas = tk.Canvas(box, height=120, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(box, orient="vertical", command=canvas.yview)
         self.patch_list_frame = ttk.Frame(canvas)
         window = canvas.create_window((0, 0), window=self.patch_list_frame, anchor="nw")
         self.patch_list_frame.bind(
@@ -364,27 +413,43 @@ class SynthTab:
 
     def _remove_patch(self, pid):
         self.engine.disconnect_patch(pid)
+        self._patches.pop(pid, None)
         row = self._patch_rows.pop(pid, None)
         if row is not None:
             row.destroy()
+        self._redraw_bay()
 
-    # ---------- waveform ----------
+    # ---------- waveform (lightweight Tk canvas) ----------
 
     def _build_waveform(self):
-        frame = ttk.LabelFrame(self.frame, text="Waveform")
-        frame.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
-        fig = Figure(figsize=WAVEFORM_FIGSIZE)
-        self.ax = fig.add_subplot(111)
-        (self.line,) = self.ax.plot(
-            np.zeros(WAVEFORM_WINDOW_SAMPLES), color="tab:blue", linewidth=1.2
-        )
-        self.ax.set_ylim(-1.05, 1.05)
-        self.ax.set_xticks([])
-        self.canvas = FigureCanvasTkAgg(fig, master=frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        box = ttk.LabelFrame(self.frame, text="Waveform")
+        box.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
+        self.wave = tk.Canvas(box, height=110, bg="#0b0b0b", highlightthickness=0)
+        self.wave.pack(fill="both", expand=True)
+        self.wave_line = self.wave.create_line(0, 0, 0, 0, fill="#4da6ff", width=1)
+
+    def _draw_wave(self):
+        data = self.engine.visual_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
+        w = max(2, self.wave.winfo_width())
+        h = max(2, self.wave.winfo_height())
+        n = WAVEFORM_POINTS
+        seg = max(1, len(data) // n)
+        pts = []
+        for i in range(n):
+            chunk = data[i * seg:(i + 1) * seg]
+            if len(chunk) == 0:
+                v = 0.0
+            else:
+                v = float(chunk[int(np.argmax(np.abs(chunk)))])
+            x = i / (n - 1) * w
+            y = h / 2 - v * (h / 2 - 2)
+            pts.extend((x, y))
+        if len(pts) >= 4:
+            self.wave.coords(self.wave_line, *pts)
 
     def _schedule_refresh(self):
-        data = self.engine.visual_buffer.read_latest(WAVEFORM_WINDOW_SAMPLES)
-        self.line.set_ydata(data)
-        self.canvas.draw_idle()
+        # Only redraw while this tab is actually visible -- keeps GIL holds
+        # tiny so they can't starve the audio producer thread.
+        if self.frame.winfo_viewable():
+            self._draw_wave()
         self.parent.after(self.refresh_ms, self._schedule_refresh)
