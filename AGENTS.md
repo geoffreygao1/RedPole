@@ -4,11 +4,11 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — the desktop app (audio_prototype/main.py) now has a ttk.Notebook with two tabs: the existing **Loop** tab (unchanged) and a new **Synth** tab that drives the Phase 1 SoundscapeEngine live via SynthAudioEngine (synth_audio_engine.py) + SynthTab (synth_tab.py). Users pick a source preset and optional transform preset from two 5x5 grids, set a finger-scan color + BPM, Connect/Remove patches, Load a texture sample, and retune the harmonic root. Only the active tab's stream plays. Web app Loop/Synth modes untouched; firmware/TD integration still WIP.
-- **Last session:** 2026-07-23 — implemented the interactive Synth tab (phase 2, first pass) per docs/superpowers/plans/2026-07-23-synth-tab-phase2.md: extracted audio_io.py, added SynthAudioEngine (stream lifecycle + sample load + root retune, thread-guarded) and the SynthTab UI, wrapped gui.py in a Notebook with tab-based stream handoff.
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The Synth tab now uses a Loop/webapp-style drag-cable patch bay (synth_tab.py): two 5x5 jack grids (sources additive/granular/resonant/noise/texture, transforms delay/spectral/pitch/grainfx/spatial), cable a source jack to a transform jack to create a SoundscapeEngine voice (release off-grid = source-only), each colored by the captured scan color. Synth audio runs on a producer thread with blocking write() at latency="high" (SynthAudioEngine) and a lightweight tk-canvas waveform, fixing the callback/GIL glitching; resonant sources skip their per-sample loop when rung out. Loop tab untouched; web app + firmware/TD still WIP.
+- **Last session:** 2026-07-23 — redesigned the Synth tab to the drag-cable patch bay and fixed synth clipping/CPU headroom per docs/superpowers/plans/2026-07-23-synth-patchbay-and-headroom.md (spec: docs/superpowers/specs/2026-07-23-synth-patchbay-and-headroom-design.md).
 - **Next up:**
-  - Tune by ear in the Synth tab: slot/preset ordering, color->timbre feel, transform intensities, root-note choices.
-  - Consider a drag-and-drop patch bay for Synth mode and persisting patches between sessions.
+  - Tune by ear in the Synth tab: source/transform preset feel, color->timbre mapping, register/gain, root-note range.
+  - Consider cable-click selection/removal and persisting patches.
   - Wire hardware finger-scan input into the Synth tab (spec Phase 3).
   - Document the firmware serial message shape (base64 JPEG framing).
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?

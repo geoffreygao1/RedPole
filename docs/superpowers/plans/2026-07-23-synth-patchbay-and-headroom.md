@@ -952,12 +952,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `AGENTS.md` (lines 6-14, "Pick up here")
 
-- [ ] **Step 1: Run the full suite**
+- [x] **Step 1: Run the full suite**
 
 Run from `audio_prototype/`: `py -3.11 -m pytest tests/ -v`
 Expected: PASS — every pre-existing test plus the changed synth/resonant tests. Zero unrelated regressions. Note the count for the report.
 
-- [ ] **Step 2: Manual launch check (human, has display + audio; do NOT run headless)**
+- [x] **Step 2: Manual launch check (human, has display + audio; do NOT run headless)**
 
 Run from `audio_prototype/`: `py -3.11 main.py`
 Expected:
@@ -967,7 +967,7 @@ Expected:
 - Remove clears the voice + cable; root Apply warns and clears; Load Sample works.
 A subagent without a display marks this done-by-inspection (automated coverage is Tasks 1-4); the user verifies by ear.
 
-- [ ] **Step 3: Refresh the "Pick up here" brief**
+- [x] **Step 3: Refresh the "Pick up here" brief**
 
 Update `AGENTS.md` lines 6-14 to:
 
@@ -983,7 +983,7 @@ Update `AGENTS.md` lines 6-14 to:
 - **Blockers / open questions:** Is TD driven by the web app, the Python engine, or the device directly?
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add AGENTS.md
