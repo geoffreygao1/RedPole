@@ -98,8 +98,9 @@ export class ToneEngine {
 
   setTranspose(semitones) {
     if (!this.transpose) return;
+    const value = Number.isFinite(semitones) ? semitones : 0;
     // Tone 14.7.77 exposes PitchShift.pitch as a numeric property, not a Param.
-    this.transpose.pitch = clamp(semitones, -12, 12);
+    this.transpose.pitch = clamp(value, -12, 12);
   }
 
   async resume() {
@@ -116,10 +117,9 @@ export class ToneEngine {
     return this.Tone.Transport.state !== "started";
   }
 
-  // A placed-but-uncabled source is pure metadata: NO audio nodes are created,
-  // so loading many silent sources into the patch bay costs nothing. The Tone
-  // nodes are built lazily the first time the voice is assigned an audible
-  // macro path.
+  // Placed sources start as pure metadata: no Tone nodes are created until the
+  // first macro assignment. After uncabling, built nodes may remain but are
+  // disconnected and silent until a macro is assigned again.
   createVoice(voiceId, { instrument, behavior, fingerprint = null }) {
     this.disposeVoice(voiceId);
     this.voices.set(voiceId, {
@@ -202,8 +202,9 @@ export class ToneEngine {
       }
       return;
     }
+    const nextMacro = createMacroNode(this.Tone, macroId);
     this._disposeMacro(voice);
-    voice.macro = createMacroNode(this.Tone, macroId);
+    voice.macro = nextMacro;
     voice.macroId = macroId;
     voice.connected = true;
     this._connectVoiceChain(voice);
@@ -243,7 +244,7 @@ export class ToneEngine {
 
   triggerVoice(voiceId, midi, durationSeconds = null) {
     const voice = this.voices.get(voiceId);
-    if (!voice || !voice.nodes) return; // unconnected voices make no sound
+    if (!voice || !voice.nodes || !voice.connected || !voice.macro) return;
     const frequency = midiToHz(midi);
     if (HELD_BEHAVIORS.has(voice.behavior)) {
       if (!voice.held) {
