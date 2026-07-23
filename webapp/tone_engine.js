@@ -26,17 +26,6 @@ function rampParam(param, value, seconds) {
   }
 }
 
-function setPitchShiftPitch(node, pitch, seconds) {
-  if (!node) return;
-  if (node.pitch && typeof node.pitch.rampTo === "function") {
-    node.pitch.rampTo(pitch, seconds);
-  } else if (node.pitch && "value" in node.pitch) {
-    node.pitch.value = pitch;
-  } else {
-    node.pitch = pitch;
-  }
-}
-
 function disconnect(node) {
   try {
     node.disconnect();
@@ -45,16 +34,13 @@ function disconnect(node) {
   }
 }
 
-function connectOnce(from, to) {
-  disconnect(from);
-  from.connect(to);
-}
-
 const BEHAVIOR_ENVELOPES = {
   pluck: { attack: 0.005, release: 1.5 },
   pad: { attack: 0.4, release: 2.0 },
   bloom: { attack: 1.5, release: 3.0 },
 };
+
+const HELD_BEHAVIORS = new Set(["pad", "bloom", "drone"]);
 
 export class ToneEngine {
   constructor({ Tone: tone = globalThis.Tone } = {}) {
@@ -76,6 +62,8 @@ export class ToneEngine {
     this.reverb = new this.Tone.Reverb({ decay: 8, wet: 0 });
     this.master.chain(this.delay, this.reverb, this.Tone.Destination);
 
+    // Decode every instrument sample ONCE. Per-voice samplers reference these
+    // shared buffers (see _buildNodes) instead of re-fetching/re-decoding.
     const urls = {};
     for (const [instrument, notes] of Object.entries(INSTRUMENT_NOTE_URLS)) {
       for (const [note, file] of Object.entries(notes)) {
@@ -97,11 +85,10 @@ export class ToneEngine {
   }
 
   setRoot(midiFloat) {
+    // Cheap: the scheduler reads rootMidi when it computes each note's pitch,
+    // so the new root applies to subsequently-triggered notes. (No per-voice
+    // pitch-shifter — held notes keep their pitch until retriggered.)
     this.rootMidi = clamp(midiFloat, ROOT_MIN, ROOT_MAX);
-    for (const voice of this.voices.values()) {
-      if (!voice.held || voice.baseRoot === null) continue;
-      setPitchShiftPitch(voice.glide, this.rootMidi - voice.baseRoot, 0.4);
-    }
   }
 
   async resume() {
@@ -118,110 +105,118 @@ export class ToneEngine {
     return this.Tone.Transport.state !== "started";
   }
 
+  // A placed-but-uncabled source is pure metadata: NO audio nodes are created,
+  // so loading many silent sources into the patch bay costs nothing. The Tone
+  // nodes are built lazily the first time the voice is cabled to a modifier.
   createVoice(voiceId, { instrument, behavior, hue, sat, val }) {
     this.disposeVoice(voiceId);
-    const envelope = BEHAVIOR_ENVELOPES[behavior] ?? BEHAVIOR_ENVELOPES.pluck;
-    const urls = INSTRUMENT_NOTE_URLS[instrument] ?? INSTRUMENT_NOTE_URLS.piano;
-    const sampler = new this.Tone.Sampler({
-      urls,
-      baseUrl: CLICKBATH_BASE_URL,
-      attack: envelope.attack,
-      release: envelope.release,
-    });
-    const glide = new this.Tone.PitchShift({ pitch: 0, windowSize: 0.08 });
-    const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);
-    sampler.chain(glide, volume);
     this.voices.set(voiceId, {
-      sampler,
-      glide,
-      volume,
-      modifier: null,
-      modifierId: null,
-      behavior,
       instrument,
+      behavior,
       hue,
       sat,
       val,
+      nodes: null,
+      modifierId: null,
       held: false,
-      baseRoot: null,
       baseMidi: null,
-      connected: false,
     });
+  }
+
+  _buildNodes(voice) {
+    const env = BEHAVIOR_ENVELOPES[voice.behavior] ?? BEHAVIOR_ENVELOPES.pluck;
+    const noteMap = INSTRUMENT_NOTE_URLS[voice.instrument] ?? INSTRUMENT_NOTE_URLS.piano;
+    const urls = {};
+    for (const note of Object.keys(noteMap)) {
+      // Reuse the already-decoded shared buffer -> no per-voice fetch/decode.
+      urls[note] = this.buffers.get(`${voice.instrument}_${note}`);
+    }
+    const sampler = new this.Tone.Sampler({ urls, attack: env.attack, release: env.release });
+    const volume = new this.Tone.Volume(NEGATIVE_INFINITY_DB);
+    sampler.connect(volume);
+    volume.connect(this.master);
+    voice.nodes = { sampler, volume, modifier: null };
+  }
+
+  _teardownNodes(voice) {
+    if (!voice.nodes) return;
+    const { sampler, volume, modifier } = voice.nodes;
+    if (voice.held) {
+      try {
+        sampler.triggerRelease();
+      } catch {
+        // ignore
+      }
+      voice.held = false;
+    }
+    disconnect(sampler);
+    disconnect(volume);
+    if (modifier) {
+      disconnect(modifier);
+      modifier.dispose();
+    }
+    sampler.dispose();
+    volume.dispose();
+    voice.nodes = null;
+    voice.modifierId = null;
   }
 
   setVoiceModifier(voiceId, modifierId) {
     const voice = this.voices.get(voiceId);
     if (!voice) return;
-    if (voice.modifier) {
-      disconnect(voice.glide);
-      disconnect(voice.modifier);
-      voice.modifier.dispose();
-      voice.modifier = null;
-      voice.modifierId = null;
-      voice.glide.connect(voice.volume);
-    }
     if (!modifierId) {
-      disconnect(voice.volume);
-      voice.connected = false;
+      // Off-grid / cleared: silence the voice by tearing down its DSP entirely.
+      this._teardownNodes(voice);
       return;
     }
-    const modifier = createModifierNode(this.Tone, modifierId);
-    connectOnce(voice.glide, modifier);
-    modifier.connect(voice.volume);
-    if (!voice.connected) {
-      voice.volume.connect(this.master);
-      voice.connected = true;
+    if (!voice.nodes) this._buildNodes(voice);
+    const nodes = voice.nodes;
+    if (nodes.modifier) {
+      disconnect(nodes.sampler);
+      disconnect(nodes.modifier);
+      nodes.modifier.dispose();
+      nodes.modifier = null;
     }
-    voice.modifier = modifier;
+    const modifier = createModifierNode(this.Tone, modifierId);
+    disconnect(nodes.sampler);
+    nodes.sampler.connect(modifier);
+    modifier.connect(nodes.volume);
+    nodes.modifier = modifier;
     voice.modifierId = modifierId;
   }
 
   setVoiceGain(voiceId, gain, rampSeconds = 0.05) {
     const voice = this.voices.get(voiceId);
-    if (!voice) return;
-    rampParam(voice.volume.volume, gainToDb(clamp(gain, 0, 1)), rampSeconds);
+    if (!voice || !voice.nodes) return;
+    rampParam(voice.nodes.volume.volume, gainToDb(clamp(gain, 0, 1)), rampSeconds);
   }
 
   triggerVoice(voiceId, midi, durationSeconds = null) {
     const voice = this.voices.get(voiceId);
-    if (!voice) return;
+    if (!voice || !voice.nodes) return; // uncabled voices make no sound
     const frequency = midiToHz(midi);
     voice.baseMidi = midi;
-    voice.baseRoot = this.rootMidi;
-    setPitchShiftPitch(voice.glide, 0, 0.02);
-    if (voice.behavior === "pad" || voice.behavior === "bloom" || voice.behavior === "drone") {
+    if (HELD_BEHAVIORS.has(voice.behavior)) {
       if (!voice.held) {
-        voice.sampler.triggerAttack(frequency);
+        voice.nodes.sampler.triggerAttack(frequency);
         voice.held = true;
       }
       return;
     }
-    const dur = durationSeconds ?? 0.5;
-    voice.sampler.triggerAttackRelease(frequency, dur);
+    voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds ?? 0.5);
   }
 
   releaseVoice(voiceId) {
     const voice = this.voices.get(voiceId);
-    if (!voice || !voice.held) return;
-    voice.sampler.triggerRelease();
+    if (!voice || !voice.nodes || !voice.held) return;
+    voice.nodes.sampler.triggerRelease();
     voice.held = false;
-    voice.baseRoot = null;
   }
 
   disposeVoice(voiceId) {
     const voice = this.voices.get(voiceId);
     if (!voice) return;
-    this.releaseVoice(voiceId);
-    disconnect(voice.sampler);
-    disconnect(voice.glide);
-    disconnect(voice.volume);
-    if (voice.modifier) {
-      disconnect(voice.modifier);
-      voice.modifier.dispose();
-    }
-    voice.sampler.dispose();
-    voice.glide.dispose();
-    voice.volume.dispose();
+    this._teardownNodes(voice);
     this.voices.delete(voiceId);
   }
 }
