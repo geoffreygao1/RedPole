@@ -4,6 +4,12 @@ import soundfile as sf
 import sounddevice as sd
 import numpy as np
 
+from audio_io import (  # re-exported for existing importers/tests
+    LOAD_CHUNK_FRAMES,
+    MAX_LOOP_SECONDS,
+    read_mono_audio,
+    resample_linear,
+)
 from crowd import CrowdState, EntryGestureTracker
 from frequency_mod_processor import FrequencyModProcessor
 from granular_processor import GranularProcessor
@@ -30,9 +36,7 @@ from tape_modulator import TapeModulator, tape_column_controls
 from wet_bus import WetBusManager
 
 VISUALIZER_BUFFER_SECONDS = 2.0
-MAX_LOOP_SECONDS = 600.0
 MAX_ANALYSIS_SECONDS = 120.0
-LOAD_CHUNK_FRAMES = 262144
 REVERB_DEFAULT_FEEDBACK = 0.84
 REVERB_DEFAULT_CUTOFF = 7800.0
 REVERB_SMOOTHING = 0.1  # per-block drift toward the target character
@@ -93,42 +97,6 @@ def reverb_layer_controls(layers):
         "val": val,
         "bpm": bpm,
     }
-
-
-def resample_linear(data, source_rate, target_rate):
-    if source_rate == target_rate or len(data) == 0:
-        return data.astype(np.float32)
-    target_len = max(1, int(round(len(data) * target_rate / source_rate)))
-    source_x = np.linspace(0.0, 1.0, len(data), endpoint=False)
-    target_x = np.linspace(0.0, 1.0, target_len, endpoint=False)
-    return np.interp(target_x, source_x, data).astype(np.float32)
-
-
-def read_mono_audio(path, max_seconds=None):
-    if max_seconds is None:
-        max_seconds = MAX_LOOP_SECONDS
-    chunks = []
-    with sf.SoundFile(path) as file:
-        file_rate = file.samplerate
-        frames_to_read = len(file)
-        if max_seconds is not None:
-            frames_to_read = min(frames_to_read, max(1, int(max_seconds * file_rate)))
-
-        remaining = frames_to_read
-        while remaining > 0:
-            block = file.read(
-                min(LOAD_CHUNK_FRAMES, remaining),
-                dtype="float32",
-                always_2d=True,
-            )
-            if len(block) == 0:
-                break
-            chunks.append(block.mean(axis=1).astype(np.float32))
-            remaining -= len(block)
-
-    if not chunks:
-        return np.zeros(0, dtype=np.float32), file_rate
-    return np.concatenate(chunks).astype(np.float32), file_rate
 
 
 class AudioEngine:
@@ -200,7 +168,7 @@ class AudioEngine:
             self._stream.start()
 
     def load_loop(self, path):
-        mono, file_rate = read_mono_audio(path)
+        mono, file_rate = read_mono_audio(path, max_seconds=MAX_LOOP_SECONDS)
         self.loop_array = resample_linear(mono, file_rate, self.samplerate)
         self._dry_pos = 0
         try:

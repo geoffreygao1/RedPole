@@ -50,7 +50,7 @@
   - `resample_linear(data, source_rate, target_rate) -> np.ndarray(float32)`.
   - `MAX_LOOP_SECONDS = 600.0`, `LOAD_CHUNK_FRAMES = 262144` (module constants the functions use).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_audio_io.py
@@ -101,12 +101,12 @@ def test_audio_engine_still_reexports_helpers():
     assert audio_engine.resample_linear is resample_linear
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_audio_io.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'audio_io'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `audio_prototype/audio_io.py` with the two functions moved verbatim from `audio_engine.py`:
 
@@ -172,12 +172,12 @@ from audio_io import (  # re-exported for existing importers/tests
 
 Leave every other line of `audio_engine.py` unchanged. `read_mono_audio`/`resample_linear` are still module attributes of `audio_engine` (now via import), so `audio_engine.read_mono_audio` keeps working.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_audio_io.py tests/test_audio_engine.py -v`
 Expected: PASS — the 5 new `test_audio_io` tests plus every existing `test_audio_engine` test (behavior unchanged).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/audio_io.py audio_prototype/audio_engine.py audio_prototype/tests/test_audio_io.py
