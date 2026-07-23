@@ -4,11 +4,11 @@
 > Claude and Codex both load it automatically. Keep it current.
 
 ## ⏱ Pick up here   ← LIVING; refresh at session end
-- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The web app now has a browser-native Tone.js synth MVP in Synth mode: clickbath pluck/pad/bloom source rows, a JS-ported harmonic field + pitch allocator + evolving VoiceConductor, per-voice modifier inserts, and a global reverb+delay wash. Loop mode still runs through the Pyodide worker path and `worker.js` is untouched.
-- **Last session:** 2026-07-23 — implemented the web Tone.js hybrid synth MVP per docs/superpowers/plans/2026-07-23-tonejs-hybrid-synth-mvp.md (spec: docs/superpowers/specs/2026-07-23-tonejs-hybrid-synth-design.md).
+- **Status:**       Prototype — the desktop app (audio_prototype/main.py) has Loop + Synth tabs. The web app Synth mode is now a sample-only Tone.js soundbath: 25 source cells across pluck/pad/bloom/bell/drone rows, a 5x5 Tone-native macro grid (veil/shimmer/flutter/scatter/space), scan-derived fingerprints, conductor-driven ebb/flow, global transpose, and global reverb+delay wash. Loop mode still runs through the Pyodide worker path and `worker.js` remains the Loop backend.
+- **Last session:** 2026-07-23 — implemented the web sample/macro soundbath direction per docs/superpowers/plans/2026-07-23-sampler-macro-soundbath.md (spec: docs/superpowers/specs/2026-07-23-sampler-macro-soundbath-design.md).
 - **Next up:**
-  - Manual browser smoke/tuning: `cd webapp && python -m http.server`, open Synth mode, assign a source to pluck/pad/bloom, cable it to a modifier, Play, then tune source levels, root glide, modifier presets, and wash amounts by ear.
-  - Phase 2 web synth sources: add bells and drone rows, then polish stretch/spectral quality.
+  - Manual browser smoke/tuning: `cd webapp && python -m http.server`, open Synth mode, assign multiple sample sources, cable them to macro cells, Play, then tune source levels, conductor weights, macro presets, transpose range, and wash amounts by ear.
+  - Consider sample-set polish for bell/drone rows and longer ambient source material if the current clickbath samples feel too transient.
   - Consider cable-click selection/removal, source-row drag-to-jack assignment, and persisting patches.
   - Wire hardware finger-scan input into the Synth path.
   - Document the firmware serial message shape (base64 JPEG framing).
@@ -34,9 +34,11 @@ visuals.
 - **firmware → host:** base64-encoded JPEG over **USB serial @ 115200**. Exact
   framing/delimiter: TBC (document in `src/AGENTS.md`).
 - **scan (color + BPM) → audio:** finger-scan hue range (bright red→orange,
-  hue 0.0–0.085) and a BPM select a patch source. The web app mirrors the
-  desktop patch bay — row engines `microloop, granules, glitch, multidelay, tape`
-  sent as the `engine` field of a `connect_source` message.
+  hue 0.0–0.085) and BPM become a subtle source fingerprint in web Synth mode:
+  harmonic bias, density, shimmer, register, macro drift, and level emphasis.
+  Web Loop mode still mirrors the desktop patch bay with row engines
+  `microloop, granules, glitch, multidelay, tape` sent as the `engine` field of
+  a `connect_source` message.
 - **audio ↔ TouchDesigner:** {{TRANSPORT}} — TBC.
 
 ## Agent roles (default — override per project)

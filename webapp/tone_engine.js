@@ -1,5 +1,6 @@
 import { CLICKBATH_BASE_URL, INSTRUMENT_NOTE_URLS } from "./generative/instrument-maps.js";
 import { midiToHz } from "./generative/harmony.js";
+import { createMacroNode } from "./modifiers.js";
 
 const NEGATIVE_INFINITY_DB = -Infinity;
 const DEFAULT_CONNECTED_GAIN = 0.55;
@@ -41,9 +42,12 @@ function disconnect(node) {
 const BEHAVIOR_ENVELOPES = {
   pluck: { attack: 0.005, release: 1.5 },
   pad: { attack: 0.4, release: 2.0 },
+  bloom: { attack: 1.5, release: 3.5 },
+  bell: { attack: 0.002, release: 2.2 },
+  drone: { attack: 2.5, release: 5.0 },
 };
 
-const HELD_BEHAVIORS = new Set(["pad"]);
+const HELD_BEHAVIORS = new Set(["pad", "bloom", "drone"]);
 
 export class ToneEngine {
   constructor({ Tone: tone = globalThis.Tone } = {}) {
@@ -52,6 +56,8 @@ export class ToneEngine {
     this.master = null;
     this.delay = null;
     this.reverb = null;
+    this.transpose = null;
+    this.limiter = null;
     this.buffers = null;
     this.voices = new Map();
     this._started = false;
@@ -61,12 +67,14 @@ export class ToneEngine {
     if (this.master) return;
     this.Tone.Transport.bpm.value = TRANSPORT_BPM;
     this.master = new this.Tone.Gain(this.Tone.dbToGain(-6));
-    // Matches clickbath's wash character: a long convolution reverb (~10s
-    // decay, clickbath uses 10) and a tempo-synced feedback delay with a long
-    // trailing echo (clickbath: FeedbackDelay('2n', 0.85)).
+    // Extends clickbath's wash character with a longer tail and tempo-synced
+    // feedback delay for a denser max-wet sound bath.
     this.delay = new this.Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.78, wet: 0 });
-    this.reverb = new this.Tone.Reverb({ decay: 10, wet: 0 });
-    this.master.chain(this.delay, this.reverb, this.Tone.Destination);
+    this.reverb = new this.Tone.Reverb({ decay: 14, preDelay: 0.05, wet: 0 });
+    this.reverb.decay = 14;
+    this.transpose = new this.Tone.PitchShift({ pitch: 0, windowSize: 0.08, delayTime: 0.03, feedback: 0, wet: 1 });
+    this.limiter = new this.Tone.Limiter(-1);
+    this.master.chain(this.transpose, this.delay, this.reverb, this.limiter, this.Tone.Destination);
 
     // Decode every instrument sample ONCE. Per-voice samplers reference these
     // shared buffers (see _buildNodes) instead of re-fetching/re-decoding.
@@ -76,19 +84,30 @@ export class ToneEngine {
         urls[`${instrument}_${note}`] = file;
       }
     }
-    this.buffers = new this.Tone.Buffers(urls, { baseUrl: CLICKBATH_BASE_URL });
+    this.buffers = new this.Tone.Buffers({ urls, baseUrl: CLICKBATH_BASE_URL });
     await this.Tone.loaded();
   }
 
   setReverb(amount) {
     if (!this.reverb) return;
-    const normalized = clamp(amount / REVERB_UI_MAX, 0, 1);
-    rampParam(this.reverb.wet, normalized, 0.05);
+    const normalized = clamp((Number.isFinite(amount) ? amount : 0) / REVERB_UI_MAX, 0, 1);
+    const shaped = normalized * normalized;
+    rampParam(this.reverb.wet, clamp(shaped * 1.25, 0, 1), 0.08);
+    if (this.delay?.feedback) {
+      rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);
+    }
   }
 
   setDelay(amount) {
     if (!this.delay) return;
     rampParam(this.delay.wet, clamp(amount, 0, 1), 0.05);
+  }
+
+  setTranspose(semitones) {
+    if (!this.transpose) return;
+    const value = Number.isFinite(semitones) ? semitones : 0;
+    // Tone 14.7.77 exposes PitchShift.pitch as a numeric property, not a Param.
+    this.transpose.pitch = clamp(value, -12, 12);
   }
 
   async resume() {
@@ -105,15 +124,18 @@ export class ToneEngine {
     return this.Tone.Transport.state !== "started";
   }
 
-  // A placed-but-uncabled source is pure metadata: NO audio nodes are created,
-  // so loading many silent sources into the patch bay costs nothing. The Tone
-  // nodes are built lazily the first time the voice is connected (cabled to a
-  // trigger-grid cell).
-  createVoice(voiceId, { instrument, behavior }) {
+  // Placed sources start as pure metadata: no Tone nodes are created until the
+  // first macro assignment. After uncabling, built nodes may remain but are
+  // disconnected and silent until a macro is assigned again.
+  createVoice(voiceId, { instrument, behavior, fingerprint = null }) {
     this.disposeVoice(voiceId);
     this.voices.set(voiceId, {
       instrument,
       behavior,
+      fingerprint,
+      macro: null,
+      macroId: null,
+      connected: false,
       nodes: null,
       held: false,
     });
@@ -128,15 +150,88 @@ export class ToneEngine {
       urls[note] = this.buffers.get(`${voice.instrument}_${note}`);
     }
     const sampler = new this.Tone.Sampler({ urls, attack: env.attack, release: env.release });
+    const input = new this.Tone.Gain(1);
     const volume = new this.Tone.Volume(gainToDb(DEFAULT_CONNECTED_GAIN));
-    sampler.connect(volume);
-    volume.connect(this.master);
-    voice.nodes = { sampler, volume };
+    sampler.connect(input);
+    input.connect(volume);
+    voice.nodes = { sampler, input, volume };
+  }
+
+  _disposeMacro(voice) {
+    if (!voice.macro) return;
+    if (voice.nodes?.input) {
+      try {
+        voice.nodes.input.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
+    for (const node of voice.macro.nodes ?? []) {
+      try {
+        node.disconnect();
+      } catch {
+        // already disconnected
+      }
+      if (typeof node.dispose === "function") node.dispose();
+    }
+    voice.macro = null;
+    voice.macroId = null;
+  }
+
+  _connectVoiceChain(voice) {
+    const { input, volume } = voice.nodes;
+    try {
+      input.disconnect();
+    } catch {
+      // reconnecting
+    }
+    if (voice.macro) {
+      input.connect(voice.macro.input);
+      voice.macro.output.connect(volume);
+    } else {
+      input.connect(volume);
+    }
+    try {
+      volume.disconnect();
+    } catch {
+      // reconnecting
+    }
+    if (voice.connected) volume.connect(this.master);
+  }
+
+  setVoiceMacro(voiceId, macroId) {
+    const voice = this.voices.get(voiceId);
+    if (!voice) return;
+    if (macroId && !voice.nodes) this._buildNodes(voice);
+    if (!macroId) {
+      voice.connected = false;
+      if (voice.nodes) {
+        this._disposeMacro(voice);
+        try {
+          voice.nodes.volume.disconnect();
+        } catch {
+          // already disconnected
+        }
+        this.releaseVoice(voiceId);
+      }
+      return;
+    }
+    const nextMacro = createMacroNode(this.Tone, macroId);
+    this._disposeMacro(voice);
+    voice.macro = nextMacro;
+    voice.macroId = macroId;
+    voice.connected = true;
+    this._connectVoiceChain(voice);
+  }
+
+  setVoiceConnected(voiceId, connected) {
+    if (connected) return;
+    this.setVoiceMacro(voiceId, null);
   }
 
   _teardownNodes(voice) {
     if (!voice.nodes) return;
-    const { sampler, volume } = voice.nodes;
+    const { sampler, input, volume } = voice.nodes;
     if (voice.held) {
       try {
         sampler.triggerRelease();
@@ -145,20 +240,14 @@ export class ToneEngine {
       }
       voice.held = false;
     }
+    this._disposeMacro(voice);
     disconnect(sampler);
+    disconnect(input);
     disconnect(volume);
     sampler.dispose();
+    input.dispose();
     volume.dispose();
     voice.nodes = null;
-  }
-
-  // Connecting a voice (cabling it to a trigger-grid cell) is what makes it
-  // audible; disconnecting tears the DSP down again (silent, zero cost).
-  setVoiceConnected(voiceId, connected) {
-    const voice = this.voices.get(voiceId);
-    if (!voice) return;
-    if (connected && !voice.nodes) this._buildNodes(voice);
-    if (!connected) this._teardownNodes(voice);
   }
 
   setVoiceGain(voiceId, gain, rampSeconds = 0.05) {
@@ -169,7 +258,7 @@ export class ToneEngine {
 
   triggerVoice(voiceId, midi, durationSeconds = null) {
     const voice = this.voices.get(voiceId);
-    if (!voice || !voice.nodes) return; // unconnected voices make no sound
+    if (!voice || !voice.nodes || !voice.connected || !voice.macro) return;
     const frequency = midiToHz(midi);
     if (HELD_BEHAVIORS.has(voice.behavior)) {
       if (!voice.held) {
@@ -179,6 +268,14 @@ export class ToneEngine {
       return;
     }
     voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds ?? 0.5);
+  }
+
+  isVoiceHeld(voiceId) {
+    return Boolean(this.voices.get(voiceId)?.held);
+  }
+
+  voiceMacroPreset(voiceId) {
+    return this.voices.get(voiceId)?.macro?.preset ?? null;
   }
 
   releaseVoice(voiceId) {

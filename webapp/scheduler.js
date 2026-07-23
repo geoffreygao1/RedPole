@@ -1,75 +1,131 @@
-import { TRIGGER_PRESETS } from "./triggers.js?v=20260723-faster-triggers";
+import { VoiceConductor } from "./generative/conductor.js";
+import { HarmonicField } from "./generative/harmony.js?v=20260723-root-note-scale";
+import { PitchAllocator } from "./generative/allocator.js?v=20260723-trigger-families";
+import { mulberry32 } from "./generative/rng.js";
 
 const ROOT_MIN = 36;
 const ROOT_MAX = 60;
 const TICK_SUBDIVISION = "16n";
-const TICKS_PER_BEAT = 4; // 16th notes per quarter-note beat
+const TICKS_PER_BEAT = 4;
+const GARNISH_BEHAVIORS = new Set(["pluck", "bell"]);
+const GARNISH_TICK_INTERVAL = 2;
+const BEHAVIOR_PERIODS = {
+  pluck: [0.5, 4],
+  bell: [0.75, 7],
+  pad: [8, 24],
+  bloom: [5, 18],
+  drone: [16, 48],
+};
+const TRIGGER_FAMILIES = [
+  { name: "still", speed: 0.9, probability: 0.56, clusterChance: 0, clusterLength: 0 },
+  { name: "breath", speed: 0.72, probability: 0.64, clusterChance: 0.08, clusterLength: 1 },
+  { name: "pulse", speed: 0.5, probability: 0.76, clusterChance: 0.16, clusterLength: 1 },
+  { name: "ripple", speed: 0.34, probability: 0.84, clusterChance: 0.32, clusterLength: 2 },
+  { name: "spark", speed: 0.22, probability: 0.7, clusterChance: 0.44, clusterLength: 3 },
+];
 
 function clamp(value, lo, hi) {
   return Math.min(hi, Math.max(lo, value));
 }
 
-// Drives every connected voice from ONE shared Tone.Transport tick instead of
-// each source's own scanned BPM. A per-voice free-running clock drifts out
-// of phase with every other voice over time (different BPMs are unrelated
-// multiples of each other); checking a shared tick counter keeps every
-// voice's pattern phase-locked to the same clock and to each other.
+function triggerFamily(fingerprint) {
+  const phrase = fingerprint?.phraseBias ?? 0.3;
+  const index = Math.min(TRIGGER_FAMILIES.length - 1, Math.floor(phrase * TRIGGER_FAMILIES.length));
+  return TRIGGER_FAMILIES[index];
+}
+
+function garnishChance(voice) {
+  const density = voice.fingerprint?.densityBias ?? 0.35;
+  const cluster = voice.fingerprint?.clusterBias ?? 0.35;
+  const motion = voice.fingerprint?.motionBias ?? 0.35;
+  const base = voice.behavior === "bell" ? 0.006 : 0.01;
+  return base + density * 0.012 + cluster * 0.01 + motion * 0.008;
+}
+
+function garnishDuration(voice) {
+  return voice.behavior === "bell" ? 0.75 : 0.45;
+}
+
 export class Scheduler {
-  constructor(engine, { Tone: tone = engine.Tone ?? globalThis.Tone } = {}) {
+  constructor(engine, { Tone: tone = engine.Tone ?? globalThis.Tone, seed = 2130 } = {}) {
     this.engine = engine;
     this.Tone = tone;
-    this.rootMidi = 60;
-    this.voices = new Map(); // voiceId -> {behavior, semitoneOffset, centsOffset, triggerId, tickOffset}
+    this.seed = seed;
+    this.rootMidi = 48;
+    this.field = new HarmonicField(this.rootMidi);
+    this.allocator = new PitchAllocator(this.field);
+    this.conductor = new VoiceConductor({ seed, minPeriod: 20, maxPeriod: 90, smoothTau: 1.2 });
+    this.voices = new Map();
     this.tick = 0;
     this.event = null;
   }
 
-  addVoice(voiceId, { behavior, semitoneOffset = 0, centsOffset = 0 }) {
+  addVoice(voiceId, { behavior, fingerprint = null }) {
+    const density = Math.min(1, (this.voices.size + 1) / 20);
+    const rng = mulberry32((fingerprint?.seed ?? voiceId) ^ this.seed ^ voiceId);
+    const detuneClass = behavior === "drone" ? "background" : "foreground";
+    const assignment = this.allocator.allocate(voiceId, rng, density, detuneClass);
+    const [minBeats, maxBeats] = BEHAVIOR_PERIODS[behavior] ?? BEHAVIOR_PERIODS.pluck;
+    const motion = fingerprint?.motionBias ?? 0.35;
+    const family = triggerFamily(fingerprint);
+    const periodBeats = (maxBeats - (maxBeats - minBeats) * motion) * family.speed;
     this.voices.set(voiceId, {
       behavior,
-      semitoneOffset,
-      centsOffset,
-      triggerId: null,
-      // A small per-voice tick offset (derived from the id) so same-pattern
-      // voices don't all land on tick 0 in lockstep -- they still share the
-      // same period/phase grid, just started at a different point on it.
-      tickOffset: voiceId % TICKS_PER_BEAT,
+      fingerprint,
+      detuneClass,
+      assignment,
+      rng,
+      family,
+      periodTicks: Math.max(1, Math.round(periodBeats * TICKS_PER_BEAT)),
+      tickOffset: Math.floor(rng() * Math.max(1, Math.round(periodBeats * TICKS_PER_BEAT))),
+      lastTriggerTick: -Infinity,
+      burstRemaining: 0,
     });
   }
 
   removeVoice(voiceId) {
-    this.setVoiceTrigger(voiceId, null);
+    this.engine.setVoiceMacro(voiceId, null);
+    this.allocator.release(voiceId);
     this.voices.delete(voiceId);
   }
 
-  // Cabling a source onto a trigger-grid cell connects it (audible) and gives
-  // it a pattern; uncabling (triggerId=null) disconnects it (silent, zero
-  // audio-node cost -- see ToneEngine.setVoiceConnected).
-  setVoiceTrigger(voiceId, triggerId) {
+  setVoiceMacro(voiceId, macroId) {
     const voice = this.voices.get(voiceId);
     if (!voice) return;
-    voice.triggerId = triggerId ?? null;
-    this.engine.setVoiceConnected(voiceId, Boolean(triggerId));
-    if (!triggerId) this.engine.releaseVoice(voiceId);
+    voice.macroId = macroId ?? null;
+    this.engine.setVoiceMacro(voiceId, macroId);
+    if (!macroId) this.engine.releaseVoice(voiceId);
   }
 
   setRoot(midi) {
     this.rootMidi = clamp(midi, ROOT_MIN, ROOT_MAX);
+    this.field.rootMidi = this.rootMidi;
+  }
+
+  setMood(mood) {
+    this.field.setMood(mood);
+    this.allocator = new PitchAllocator(this.field);
+    const density = Math.min(1, this.voices.size / 20);
+    for (const [id, voice] of this.voices) {
+      voice.assignment = this.allocator.allocate(id, voice.rng, density, voice.detuneClass);
+    }
   }
 
   midiForVoice(voice) {
-    return this.rootMidi + voice.semitoneOffset + voice.centsOffset / 100.0;
+    const { role, octave, detuneCents } = voice.assignment;
+    return this.rootMidi + this.field.semitoneForRole(role) + 12 * octave + detuneCents / 100.0;
   }
 
-  noteDurationForPreset(preset) {
-    return preset.beatsPerStep >= 8 ? 3.0 : 0.6;
+  immediateDuration(voice) {
+    if (["pad", "bloom", "drone"].includes(voice.behavior)) return null;
+    return voice.behavior === "bell" ? 1.4 : 1.8;
   }
 
   triggerVoiceNow(voiceId) {
     const voice = this.voices.get(voiceId);
-    const preset = TRIGGER_PRESETS[voice?.triggerId];
-    if (!voice || !preset) return;
-    this.engine.triggerVoice(voiceId, this.midiForVoice(voice), this.noteDurationForPreset(preset));
+    if (!voice || !voice.macroId) return;
+    this.engine.setVoiceGain(voiceId, 0.55, 0.02);
+    this.engine.triggerVoice(voiceId, this.midiForVoice(voice), this.immediateDuration(voice));
   }
 
   triggerConnectedVoicesNow() {
@@ -91,17 +147,49 @@ export class Scheduler {
 
   _tick() {
     const currentTick = this.tick++;
-    for (const [id, voice] of this.voices) {
-      const preset = TRIGGER_PRESETS[voice.triggerId];
-      if (!preset) continue; // uncabled: no pattern, no trigger
-      const ticksPerStep = preset.beatsPerStep * TICKS_PER_BEAT;
-      if ((currentTick + voice.tickOffset) % ticksPerStep !== 0) continue;
-      if (voice.behavior === "pad") {
-        const engineVoice = this.engine.voices.get(id);
-        if (engineVoice && engineVoice.held) continue; // already sustaining
+    const activeIds = [...this.voices.keys()].filter((id) => this.voices.get(id).macroId);
+    const dt = this.Tone.Time(TICK_SUBDIVISION).toSeconds();
+    const gains = this.conductor.update(activeIds, dt);
+    for (const id of activeIds) {
+      this.engine.setVoiceGain(id, gains.get(id) ?? 0, 0.18);
+    }
+    for (const id of activeIds) {
+      const voice = this.voices.get(id);
+      if (!voice) continue;
+      const due = (currentTick + voice.tickOffset) % voice.periodTicks === 0;
+      const garnishDue =
+        !due &&
+        voice.burstRemaining <= 0 &&
+        GARNISH_BEHAVIORS.has(voice.behavior) &&
+        currentTick % GARNISH_TICK_INTERVAL === 0;
+      if (["pad", "bloom", "drone"].includes(voice.behavior)) {
+        if (!this.engine.isVoiceHeld(id)) this.engine.triggerVoice(id, this.midiForVoice(voice), null);
+        if (voice.behavior === "bloom" && due && voice.rng() < 0.16 + (voice.fingerprint?.densityBias ?? 0.3) * 0.14) {
+          this.engine.releaseVoice(id);
+          this.engine.triggerVoice(id, this.midiForVoice(voice), null);
+        }
+        continue;
       }
-      if (Math.random() > preset.probability) continue;
-      this.engine.triggerVoice(id, this.midiForVoice(voice), this.noteDurationForPreset(preset));
+      if (garnishDue && voice.rng() < garnishChance(voice) * voice.family.probability) {
+        this.engine.triggerVoice(id, this.midiForVoice(voice), garnishDuration(voice));
+        continue;
+      }
+      if (!due && voice.burstRemaining <= 0) continue;
+      const density = voice.fingerprint?.densityBias ?? 0.35;
+      const inBurst = voice.burstRemaining > 0;
+      const probability = inBurst ? 0.92 : (voice.behavior === "bell" ? 0.22 + density * 0.42 : 0.34 + density * 0.48) * voice.family.probability;
+      if (voice.rng() > probability) {
+        if (inBurst) voice.burstRemaining -= 1;
+        continue;
+      }
+      const dur = voice.behavior === "bell" ? 1.8 : 2.4;
+      voice.lastTriggerTick = currentTick;
+      this.engine.triggerVoice(id, this.midiForVoice(voice), dur);
+      if (inBurst) {
+        voice.burstRemaining -= 1;
+      } else if (voice.rng() < voice.family.clusterChance * (voice.fingerprint?.clusterBias ?? 0.35)) {
+        voice.burstRemaining = voice.family.clusterLength;
+      }
     }
   }
 }
