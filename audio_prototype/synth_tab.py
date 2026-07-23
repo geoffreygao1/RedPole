@@ -176,7 +176,7 @@ class SynthPatchModel:
 
 import colorsys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 
 import numpy as np
 
@@ -275,9 +275,21 @@ class SynthTab:
         self._update_root_label(self.engine.root_midi)
         ttk.Label(rootbox, textvariable=self.root_label_var, width=6).grid(row=0, column=1, padx=4)
 
-        ttk.Button(panel, text="Load Sample...", command=self._on_load_sample).pack(
-            fill="x", pady=(8, 0)
+        washbox = ttk.LabelFrame(panel, text="Space (reverb + delay)")
+        washbox.pack(fill="x", pady=(8, 0))
+        ttk.Label(washbox, text="Reverb").grid(row=0, column=0, sticky="w", padx=4)
+        self.reverb_scale = ttk.Scale(
+            washbox, from_=0.0, to=1.0, orient="horizontal", command=self._on_reverb
         )
+        self.reverb_scale.set(self.engine.engine.wash.reverb_amount)
+        self.reverb_scale.grid(row=0, column=1, sticky="ew", padx=4, pady=2)
+        ttk.Label(washbox, text="Delay").grid(row=1, column=0, sticky="w", padx=4)
+        self.delay_scale = ttk.Scale(
+            washbox, from_=0.0, to=1.0, orient="horizontal", command=self._on_delay
+        )
+        self.delay_scale.set(self.engine.engine.wash.delay_amount)
+        self.delay_scale.grid(row=1, column=1, sticky="ew", padx=4, pady=2)
+        washbox.columnconfigure(1, weight=1)
         self._set_pick(PICKER_W // 2, PICKER_H // 2)
 
     def _build_picker_image(self):
@@ -319,21 +331,16 @@ class SynthTab:
         self.engine.set_root(midi)
         self._update_root_label(midi)
 
+    def _on_reverb(self, value):
+        self.engine.set_reverb(float(value))
+
+    def _on_delay(self, value):
+        self.engine.set_delay(float(value))
+
     def _update_root_label(self, midi):
         nearest = int(round(float(midi)))
         label = next((lbl for lbl, m in ROOT_NOTE_CHOICES if m == nearest), str(nearest))
         self.root_label_var.set(label)
-
-    def _on_load_sample(self):
-        path = filedialog.askopenfilename(
-            filetypes=[("Audio files", "*.wav *.mp3"), ("WAV files", "*.wav")]
-        )
-        if not path:
-            return
-        try:
-            self.engine.load_sample(path)
-        except Exception as exc:
-            messagebox.showerror("Failed to load sample", str(exc))
 
     # ---------- transport ----------
 
@@ -425,7 +432,7 @@ class SynthTab:
         self.bay.bind("<ButtonRelease-1>", self._on_release)
         self._redraw_bay()
 
-    def _draw_grid(self, origin, rows, title):
+    def _draw_grid(self, origin, rows, title, col_label=None):
         ox, oy = origin
         c = self.bay
         c.create_text(ox, oy - 22, text=title, anchor="w", fill="#bdbdbd", font=("TkDefaultFont", 9))
@@ -436,7 +443,8 @@ class SynthTab:
                 x0 = ox + col * SYNTH_CELL
                 y0 = oy + r * SYNTH_CELL
                 c.create_rectangle(x0, y0, x0 + SYNTH_CELL, y0 + SYNTH_CELL, outline="#444", fill="#222")
-                c.create_text(x0 + 8, y0 + 10, text=VARIANT_LABELS[col], fill="#808080", font=("TkDefaultFont", 8))
+                label = col_label(r, col) if col_label else VARIANT_LABELS[col]
+                c.create_text(x0 + 8, y0 + 10, text=label, fill="#808080", font=("TkDefaultFont", 8))
 
     def _draw_jacks(self, origin, filled):
         for r in range(SYNTH_GRID_SIZE):
@@ -452,7 +460,7 @@ class SynthTab:
     def _redraw_bay(self):
         c = self.bay
         c.delete("all")
-        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "generators")
+        self._draw_grid(SYNTH_SOURCE_ORIGIN, SYNTH_SOURCE_ROWS, "generators", col_label=source_col_label)
         self._draw_grid(SYNTH_TRANSFORM_ORIGIN, SYNTH_TRANSFORM_ROWS, "modifiers")
 
         source_fill = {}

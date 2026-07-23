@@ -151,6 +151,40 @@ def test_play_pause_toggles_engine():
         eng.stop()
         root.destroy()
 
+
+def test_reverb_delay_sliders_drive_the_engine():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+        tab.reverb_scale.set(0.75)
+        tab.delay_scale.set(0.25)
+        assert abs(eng.engine.wash.reverb_amount - 0.75) < 1e-6
+        assert abs(eng.engine.wash.delay_amount - 0.25) < 1e-6
+    finally:
+        root.destroy()
+
+
+def test_no_load_sample_button_text_present():
+    root = _tk_root_or_skip()
+    try:
+        eng = SynthAudioEngine(seed=1)
+        tab = SynthTab(root, eng)
+
+        def texts(widget, acc):
+            for child in widget.winfo_children():
+                try:
+                    acc.append(str(child.cget("text")))
+                except Exception:
+                    pass
+                texts(child, acc)
+            return acc
+
+        labels = texts(tab.frame, [])
+        assert not any("Load Sample" in t for t in labels)
+    finally:
+        root.destroy()
+
 from synth_tab import (
     SYNTH_GRID_SIZE as _GRID,
     source_cell_at,
