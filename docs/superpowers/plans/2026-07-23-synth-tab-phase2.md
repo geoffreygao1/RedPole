@@ -683,7 +683,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   - `next_selection(current, clicked) -> tuple|None` (single-select toggle).
   - `BPM_MIN = 20.0`, `BPM_MAX = 300.0`, `parse_bpm(text) -> float|None`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # audio_prototype/tests/test_synth_tab.py
@@ -756,12 +756,12 @@ def test_parse_bpm_clamps_and_rejects_garbage():
     assert parse_bpm("") is None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_synth_tab.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'synth_tab'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # audio_prototype/synth_tab.py
@@ -823,12 +823,12 @@ def parse_bpm(text):
     return float(min(BPM_MAX, max(BPM_MIN, bpm)))
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_synth_tab.py -v`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add audio_prototype/synth_tab.py audio_prototype/tests/test_synth_tab.py
