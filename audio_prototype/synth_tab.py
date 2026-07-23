@@ -95,6 +95,75 @@ def transform_cell_at(x, y):
     return _cell_at(SYNTH_TRANSFORM_ORIGIN, x, y)
 
 
+class SynthPatchModel:
+    """Pure state for the web-app-style synth workflow (no Tk): scanned
+    sources are single-use; assigning one onto a generator jack consumes it
+    and creates an engine voice; cabling that jack to a modifier sets the
+    voice's transform. `engine` is a SoundscapeEngine / SynthAudioEngine."""
+
+    def __init__(self, engine, limit=SYNTH_PATCH_LIMIT):
+        self.engine = engine
+        self.limit = limit
+        self._next_client_id = 1
+        self.sources = {}      # cid -> {hue,sat,val,bpm,color}
+        self.voices = {}       # pid -> {source_cell,transform_cell,color,bpm,source_id,transform_id,client_id}
+        self.jack_to_pid = {}  # source_cell -> pid
+
+    def total_count(self):
+        return len(self.sources) + len(self.voices)
+
+    def add_source(self, hue, sat, val, bpm, color):
+        if self.total_count() >= self.limit:
+            return None
+        cid = self._next_client_id
+        self._next_client_id += 1
+        self.sources[cid] = {"hue": hue, "sat": sat, "val": val, "bpm": bpm, "color": color}
+        return cid
+
+    def remove_source(self, cid):
+        self.sources.pop(cid, None)
+
+    def assign_source_to_generator(self, cid, source_cell):
+        src = self.sources.get(cid)
+        if src is None:
+            return None
+        occupant = self.jack_to_pid.get(source_cell)
+        if occupant is not None:
+            self.remove_voice(occupant)
+        source_id = source_preset_id(*source_cell)
+        pid = self.engine.connect_patch(
+            src["hue"], src["sat"], src["val"], src["bpm"], source_id, None
+        )
+        self.voices[pid] = {
+            "source_cell": source_cell,
+            "transform_cell": None,
+            "color": src["color"],
+            "bpm": src["bpm"],
+            "source_id": source_id,
+            "transform_id": None,
+            "client_id": cid,
+        }
+        self.jack_to_pid[source_cell] = pid
+        del self.sources[cid]
+        return pid
+
+    def set_voice_transform(self, pid, transform_cell):
+        voice = self.voices.get(pid)
+        if voice is None:
+            return
+        transform_id = transform_preset_id(*transform_cell) if transform_cell is not None else None
+        self.engine.set_patch_transform(pid, transform_id)
+        voice["transform_cell"] = transform_cell
+        voice["transform_id"] = transform_id
+
+    def remove_voice(self, pid):
+        voice = self.voices.pop(pid, None)
+        if voice is None:
+            return
+        self.engine.disconnect_patch(pid)
+        self.jack_to_pid.pop(voice["source_cell"], None)
+
+
 import colorsys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
