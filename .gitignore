@@ -8,3 +8,4 @@ audio_prototype/.venv
 audio_prototype/__pycache__
 audio_prototype/**/__pycache__
 webapp/assets/samples/
+audio_prototype/assets/clickbath/
