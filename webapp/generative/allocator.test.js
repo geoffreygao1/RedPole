@@ -26,3 +26,21 @@ test("allocate is seed-deterministic", () => {
   const b = new PitchAllocator(f2).allocate(3, mulberry32(9), 0.5);
   assert.deepEqual(a, b);
 });
+
+test("allocate anchors sub/low register voices on a foundation role", () => {
+  const alloc = new PitchAllocator(new HarmonicField(48, true, "optimistic"));
+  for (let vid = 0; vid < 15; vid++) {
+    const a = alloc.allocate(vid, mulberry32(vid + 1), 0.2, "foreground");
+    if (a.band === "sub" || a.band === "low") {
+      assert.ok(["root", "fifth"].includes(a.role), `expected foundation role in ${a.band}, got ${a.role}`);
+    }
+  }
+});
+
+test("melancholy (spread 0) always starts the octave search at 0", () => {
+  const field = new HarmonicField(48, true, "melancholy");
+  assert.equal(field.octaveSpread(), 0);
+  const alloc = new PitchAllocator(field);
+  const a = alloc.allocate(1, mulberry32(1), 0.1, "foreground");
+  assert.equal(a.octave, 0);
+});

@@ -2,6 +2,7 @@ import { VoiceConductor } from "./generative/conductor.js";
 import { HarmonicField } from "./generative/harmony.js?v=20260723-root-note-scale";
 import { PitchAllocator } from "./generative/allocator.js?v=20260723-trigger-families";
 import { mulberry32 } from "./generative/rng.js";
+import { shadowMidi, scatterMidi, ticksForSeconds } from "./generative/voicing.js";
 
 const ROOT_MIN = 36;
 const ROOT_MAX = 60;
@@ -9,6 +10,8 @@ const TICK_SUBDIVISION = "16n";
 const TICKS_PER_BEAT = 4;
 const GARNISH_BEHAVIORS = new Set(["pluck", "bell"]);
 const GARNISH_TICK_INTERVAL = 2;
+const REVOICE_MIN_SECONDS = 45;
+const REVOICE_MAX_SECONDS = 150;
 const BEHAVIOR_PERIODS = {
   pluck: [0.5, 4],
   bell: [0.75, 7],
@@ -51,13 +54,14 @@ export class Scheduler {
     this.engine = engine;
     this.Tone = tone;
     this.seed = seed;
-    this.rootMidi = 48;
+    this.rootMidi = 36;
     this.field = new HarmonicField(this.rootMidi);
     this.allocator = new PitchAllocator(this.field);
     this.conductor = new VoiceConductor({ seed, minPeriod: 20, maxPeriod: 90, smoothTau: 1.2 });
     this.voices = new Map();
     this.tick = 0;
     this.event = null;
+    this.dtSeconds = this.Tone.Time(TICK_SUBDIVISION).toSeconds();
   }
 
   addVoice(voiceId, { behavior, fingerprint = null }) {
@@ -69,6 +73,10 @@ export class Scheduler {
     const motion = fingerprint?.motionBias ?? 0.35;
     const family = triggerFamily(fingerprint);
     const periodBeats = (maxBeats - (maxBeats - minBeats) * motion) * family.speed;
+    const periodTicks = Math.max(1, Math.round(periodBeats * TICKS_PER_BEAT));
+    const isHeld = ["pad", "bloom", "drone"].includes(behavior);
+    const revoiceSeconds = REVOICE_MIN_SECONDS + (REVOICE_MAX_SECONDS - REVOICE_MIN_SECONDS) * rng();
+    const revoicePeriodTicks = isHeld ? ticksForSeconds(revoiceSeconds, this.dtSeconds) : Infinity;
     this.voices.set(voiceId, {
       behavior,
       fingerprint,
@@ -76,10 +84,12 @@ export class Scheduler {
       assignment,
       rng,
       family,
-      periodTicks: Math.max(1, Math.round(periodBeats * TICKS_PER_BEAT)),
-      tickOffset: Math.floor(rng() * Math.max(1, Math.round(periodBeats * TICKS_PER_BEAT))),
+      periodTicks,
+      tickOffset: Math.floor(rng() * periodTicks),
       lastTriggerTick: -Infinity,
       burstRemaining: 0,
+      revoicePeriodTicks,
+      revoiceTickOffset: Number.isFinite(revoicePeriodTicks) ? Math.floor(rng() * revoicePeriodTicks) : 0,
     });
   }
 
@@ -126,12 +136,29 @@ export class Scheduler {
     if (!voice || !voice.macroId) return;
     this.engine.setVoiceGain(voiceId, 0.55, 0.02);
     this.engine.triggerVoice(voiceId, this.midiForVoice(voice), this.immediateDuration(voice));
+    this._triggerCompanions(voiceId, voice);
   }
 
   triggerConnectedVoicesNow() {
     for (const voiceId of this.voices.keys()) {
       this.triggerVoiceNow(voiceId);
     }
+  }
+
+  _triggerCompanions(voiceId, voice) {
+    const preset = this.engine.voiceMacroPreset(voiceId);
+    if (!preset) return;
+    const baseMidi = this.midiForVoice(voice);
+    if (preset.kind === "shadow") {
+      this.engine.triggerAccent(voiceId, shadowMidi(baseMidi, preset.interval), 0.6, preset.gain);
+    } else if (preset.kind === "scatter" && voice.rng() < preset.density) {
+      this.engine.triggerAccent(voiceId, scatterMidi(this.field, voice.rng, voice.assignment), 0.5, preset.gain);
+    }
+  }
+
+  _revoiceDue(voice, currentTick) {
+    if (!Number.isFinite(voice.revoicePeriodTicks)) return false;
+    return (currentTick + voice.revoiceTickOffset) % voice.revoicePeriodTicks === 0;
   }
 
   start() {
@@ -168,10 +195,17 @@ export class Scheduler {
           this.engine.releaseVoice(id);
           this.engine.triggerVoice(id, this.midiForVoice(voice), null);
         }
+        if (this._revoiceDue(voice, currentTick)) {
+          voice.assignment = this.allocator.allocate(id, voice.rng, Math.min(1, this.voices.size / 20), voice.detuneClass);
+          this.engine.releaseVoice(id);
+          this.engine.triggerVoice(id, this.midiForVoice(voice), null);
+        }
+        if (due) this._triggerCompanions(id, voice);
         continue;
       }
       if (garnishDue && voice.rng() < garnishChance(voice) * voice.family.probability) {
         this.engine.triggerVoice(id, this.midiForVoice(voice), garnishDuration(voice));
+        this._triggerCompanions(id, voice);
         continue;
       }
       if (!due && voice.burstRemaining <= 0) continue;
@@ -185,6 +219,7 @@ export class Scheduler {
       const dur = voice.behavior === "bell" ? 1.8 : 2.4;
       voice.lastTriggerTick = currentTick;
       this.engine.triggerVoice(id, this.midiForVoice(voice), dur);
+      this._triggerCompanions(id, voice);
       if (inBurst) {
         voice.burstRemaining -= 1;
       } else if (voice.rng() < voice.family.clusterChance * (voice.fingerprint?.clusterBias ?? 0.35)) {

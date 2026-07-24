@@ -110,7 +110,7 @@ def test_synth_mode_has_global_transpose_control():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
 
-    assert '<input id="transpose-slider" type="range" min="-12" max="12" step="1" value="0"' in index_html
+    assert '<input id="transpose-slider" type="range" min="-24" max="24" step="0.01" value="0"' in index_html
     assert 'this.transposeSlider = document.getElementById("transpose-slider");' in main_js
     assert 'this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value))' in main_js
     assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
@@ -159,12 +159,12 @@ def test_root_knob_controls_integer_note_names_not_raw_midi_numbers():
     assert '<input id="root-slider" type="range" min="0" max="11" step="1" value="0"' in index_html
     assert "const NOTE_NAMES =" in main_js
     assert "rootMidiFromPitchClass" in main_js
-    assert "48 + Math.round(pitchClass)" in main_js
+    assert "36 + Math.round(pitchClass)" in main_js
     assert "midiToPitchClassName(value)" in main_js
     assert 'output.textContent = midiToPitchClassName(value);' in main_js
     assert "this.scheduler.setRoot(rootMidiFromPitchClass(e.target.value));" in main_js
     assert "this.scheduler.setRoot(rootMidiFromPitchClass(this.rootSlider.value));" in main_js
-    assert "this.rootMidi = 48;" in (ROOT / "webapp" / "scheduler.js").read_text()
+    assert "this.rootMidi = 36;" in (ROOT / "webapp" / "scheduler.js").read_text()
     assert '`MIDI ${Math.round(value)}`' not in main_js
     assert "Math.floor(rounded / 12) - 1" not in main_js
 
@@ -335,7 +335,7 @@ def test_synth_wash_controls_default_to_seventy_percent():
     assert "rampParam(this.reverb.wet, clamp(amount, 0, 1.5), 0.05);" not in tone_engine_js
 
 
-def test_synth_default_root_is_one_octave_higher():
+def test_synth_default_root_is_lowered_back_one_octave():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
     scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
@@ -343,9 +343,9 @@ def test_synth_default_root_is_one_octave_higher():
     assert '<input id="root-slider" type="range" min="0" max="11" step="1" value="0"' in index_html
     assert 'src="main.js?v=20260723-5x5-deploy"' in index_html
     assert 'from "./scheduler.js?v=20260723-5x5-deploy"' in main_js
-    assert "48 + Math.round(pitchClass)" in main_js
-    assert "this.rootMidi = 48;" in scheduler_js
-    assert "this.rootMidi = 36;" not in scheduler_js
+    assert "36 + Math.round(pitchClass)" in main_js
+    assert "this.rootMidi = 36;" in scheduler_js
+    assert "this.rootMidi = 48;" not in scheduler_js
 
 
 def test_synth_trigger_grid_is_more_responsive():
@@ -585,7 +585,7 @@ def test_webapp_generative_suite_passes_node_test():
         pytest.skip("node is not installed")
 
     result = subprocess.run(
-        [node, "--test", "webapp/generative/"],
+        [node, "--test", "webapp/generative/", "webapp/scheduler.test.js"],
         cwd=ROOT,
         text=True,
         capture_output=True,

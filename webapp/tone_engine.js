@@ -107,7 +107,7 @@ export class ToneEngine {
     if (!this.transpose) return;
     const value = Number.isFinite(semitones) ? semitones : 0;
     // Tone 14.7.77 exposes PitchShift.pitch as a numeric property, not a Param.
-    this.transpose.pitch = clamp(value, -12, 12);
+    this.transpose.pitch = clamp(value, -24, 24);
   }
 
   async resume() {
@@ -268,6 +268,18 @@ export class ToneEngine {
       return;
     }
     voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds ?? 0.5);
+  }
+
+  // Fires a short companion note through the SAME sampler as the primary
+  // voice, at a reduced velocity, without going through the HELD_BEHAVIORS
+  // held-note gate in triggerVoice(). Used by shadow (fixed-interval overtone)
+  // and scatter (wandering pitch echo) macros so they can layer a note on top
+  // of an already-sustaining pad/bloom/drone voice.
+  triggerAccent(voiceId, midi, durationSeconds, velocity = 1) {
+    const voice = this.voices.get(voiceId);
+    if (!voice || !voice.nodes || !voice.connected || !voice.macro) return;
+    const frequency = midiToHz(midi);
+    voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds, undefined, clamp(velocity, 0, 1));
   }
 
   isVoiceHeld(voiceId) {

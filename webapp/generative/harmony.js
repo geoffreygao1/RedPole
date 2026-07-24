@@ -3,14 +3,19 @@
 export const PENTATONIC = [0, 2, 5, 7, 10];
 export const HARMONIC_PALETTES = {
   optimistic: {
-    // Clickbath optimistic defaults to C = C, E, G, A.
-    semitones: { root: 0, third: 4, fifth: 7, sixth: 9 },
-    weights: { root: 0.34, third: 0.24, fifth: 0.26, sixth: 0.16 },
+    // Clickbath's actual optimistic mode is the full major scale, picked with
+    // near-equal probability (see clickbath src/index.js noteArray()) -- not a
+    // narrow root-heavy subset. A narrow subset read as static/droney
+    // regardless of which notes were in it, because with up to 25 sustained
+    // voices sharing only 4 pitch classes you get heavy unison stacking.
+    semitones: { root: 0, second: 2, third: 4, fourth: 5, fifth: 7, sixth: 9, seventh: 11 },
+    weights: { root: 0.15, second: 0.14, third: 0.14, fourth: 0.13, fifth: 0.15, sixth: 0.14, seventh: 0.15 },
   },
   happy: {
-    // A brighter variant of the same Clickbath major/sixth note family.
-    semitones: { root: 0, second: 2, third: 4, fifth: 7, sixth: 9 },
-    weights: { root: 0.28, second: 0.12, third: 0.26, fifth: 0.22, sixth: 0.12 },
+    // Same full-scale breadth as optimistic, with thirds/sixths/sevenths
+    // weighted up slightly for a brighter major-7 lean.
+    semitones: { root: 0, second: 2, third: 4, fourth: 5, fifth: 7, sixth: 9, seventh: 11 },
+    weights: { root: 0.13, second: 0.12, third: 0.16, fourth: 0.1, fifth: 0.14, sixth: 0.16, seventh: 0.19 },
   },
   mysterious: {
     // Clickbath mystery uses a minor/flat-six color; Root supplies the key.
@@ -23,6 +28,23 @@ export const HARMONIC_PALETTES = {
     weights: { root: 0.34, second: 0.16, minorThird: 0.26, fifth: 0.24 },
   },
 };
+
+export const MOOD_OCTAVE_SPREAD = {
+  optimistic: 2,
+  happy: 2,
+  mysterious: 1,
+  melancholy: 0,
+};
+
+export function octaveSpreadForMood(mood) {
+  return MOOD_OCTAVE_SPREAD[mood] ?? MOOD_OCTAVE_SPREAD.melancholy;
+}
+
+const FOUNDATION_ROLES = new Set(["root", "fifth"]);
+export function isFoundationRole(role) {
+  return FOUNDATION_ROLES.has(role);
+}
+
 const SCALE_INTERVALS = {
   major: { root: 0, third: 4, fifth: 7, sixth: 9 },
   minor: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 },
@@ -59,6 +81,9 @@ export class HarmonicField {
     const palette = paletteForId(mood);
     this.mood = palette === HARMONIC_PALETTES.optimistic && mood !== "optimistic" ? "optimistic" : mood;
     this.palette = palette;
+  }
+  octaveSpread() {
+    return octaveSpreadForMood(this.mood);
   }
   roles() {
     const all = Object.keys(this.palette.weights);

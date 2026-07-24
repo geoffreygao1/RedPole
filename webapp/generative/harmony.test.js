@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mulberry32 } from "./rng.js";
-import { HARMONIC_PALETTES, HarmonicField, ROLE_SEMITONES, midiToHz, paletteForId } from "./harmony.js";
+import { HARMONIC_PALETTES, HarmonicField, ROLE_SEMITONES, midiToHz, paletteForId, octaveSpreadForMood, isFoundationRole } from "./harmony.js";
 
 test("midiForRole adds root + role semitone + octaves", () => {
   const f = new HarmonicField(62);
@@ -55,4 +55,40 @@ test("harmonic field can use clickbath-style root major and minor scales", () =>
   const f = new HarmonicField(54, true, "scale:minor");
   assert.equal(f.midiForRole("root"), 54);
   assert.equal(f.midiForRole("flatSixth"), 62);
+});
+
+test("optimistic and happy moods use the full clickbath major scale, evenly weighted", () => {
+  const f = new HarmonicField(48, true, "optimistic");
+  const expectedRoles = ["fifth", "fourth", "root", "second", "seventh", "sixth", "third"];
+  assert.deepEqual(f.roles().sort(), expectedRoles.sort());
+  for (const r of f.roles()) {
+    assert.ok(f.palette.weights[r] <= 0.2, `optimistic ${r} weight ${f.palette.weights[r]} should be near-flat`);
+  }
+  f.setMood("happy");
+  assert.deepEqual(f.roles().sort(), expectedRoles.sort());
+  for (const r of f.roles()) {
+    assert.ok(f.palette.weights[r] <= 0.2, `happy ${r} weight ${f.palette.weights[r]} should be near-flat`);
+  }
+});
+
+test("optimistic/happy octave spread is wider than mysterious/melancholy", () => {
+  assert.equal(octaveSpreadForMood("optimistic"), 2);
+  assert.equal(octaveSpreadForMood("happy"), 2);
+  assert.equal(octaveSpreadForMood("mysterious"), 1);
+  assert.equal(octaveSpreadForMood("melancholy"), 0);
+  assert.equal(octaveSpreadForMood("unknown-mood-id"), 0);
+});
+
+test("HarmonicField.octaveSpread() reflects the current mood", () => {
+  const f = new HarmonicField(48, true, "melancholy");
+  assert.equal(f.octaveSpread(), 0);
+  f.setMood("optimistic");
+  assert.equal(f.octaveSpread(), 2);
+});
+
+test("isFoundationRole flags only root and fifth", () => {
+  assert.ok(isFoundationRole("root"));
+  assert.ok(isFoundationRole("fifth"));
+  assert.ok(!isFoundationRole("second"));
+  assert.ok(!isFoundationRole("seventh"));
 });

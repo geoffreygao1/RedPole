@@ -1,5 +1,5 @@
 // Port of soundscape_harmony.py's register logic + PitchAllocator.
-import { midiToHz } from "./harmony.js";
+import { isFoundationRole, midiToHz } from "./harmony.js";
 import { uniform } from "./rng.js";
 
 const REGISTER_BANDS = [
@@ -28,7 +28,9 @@ export class PitchAllocator {
   }
   allocate(vid, rng, density, detuneClass = "foreground") {
     const role = this.field.weightedRole(rng);
-    let octave = 0, midi, band;
+    const spread = this.field.octaveSpread();
+    let octave = spread > 0 ? Math.floor(rng() * (spread + 1)) : 0;
+    let midi, band;
     let placed = false;
     for (let i = 0; i < 4; i++) {
       midi = this.field.midiForRole(role, octave);
@@ -46,9 +48,15 @@ export class PitchAllocator {
       midi = this.field.midiForRole(role, octave);
       band = bandForHz(midiToHz(midi));
     }
+    let finalRole = role;
+    if ((band === "sub" || band === "low") && !isFoundationRole(role)) {
+      finalRole = "root";
+      midi = this.field.midiForRole(finalRole, octave);
+      band = bandForHz(midiToHz(midi));
+    }
     const limit = DETUNE_CENTS_RANGE[detuneClass] ?? DETUNE_CENTS_RANGE.foreground;
     const detuneCents = uniform(rng, -limit, limit);
     this._register(vid, band);
-    return { role, octave, detuneCents, band, midi: midi + detuneCents / 100.0 };
+    return { role: finalRole, octave, detuneCents, band, midi: midi + detuneCents / 100.0 };
   }
 }
