@@ -836,6 +836,21 @@ class App {
     if (!source || source.slot === null) return;
     const row = cell.row;
     const col = cell.col;
+    // Only one source may occupy a given effect cell at a time -- claiming an
+    // already-cabled cell bumps whichever source was there first, mirroring
+    // how assignSourceToOutput() already bumps a source from an output slot.
+    for (const [otherId, other] of this.sources) {
+      if (otherId !== sourceId && other.row === row && other.col === col) {
+        if (this.mode === "synth") {
+          this.scheduler?.setVoiceMacro(otherId, null);
+        } else {
+          this.worker.postMessage({ type: "disconnect_source", sourceId: otherId });
+        }
+        other.row = null;
+        other.col = null;
+        other.macroId = null;
+      }
+    }
     if (this.mode === "synth") {
       const macroId = macroPresetId(row, col);
       this.scheduler?.setVoiceMacro(sourceId, macroId);
