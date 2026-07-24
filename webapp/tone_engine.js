@@ -62,6 +62,10 @@ export class ToneEngine {
     this.voices = new Map();
     this._started = false;
     this.macroDepth = 1;
+    this._reverbFeedbackBase = 0.72;
+    this._delayWet = 0;
+    this._voicePowerDb = 0;
+    this._reverbHeadroomDb = 0;
   }
 
   async init() {
@@ -71,8 +75,8 @@ export class ToneEngine {
     // Extends clickbath's wash character with a longer tail and tempo-synced
     // feedback delay for a denser max-wet sound bath.
     this.delay = new this.Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.78, wet: 0 });
-    this.reverb = new this.Tone.Reverb({ decay: 14, preDelay: 0.05, wet: 0 });
-    this.reverb.decay = 14;
+    this.reverb = new this.Tone.Reverb({ decay: 20, preDelay: 0.05, wet: 0 });
+    this.reverb.decay = 20;
     this.limiter = new this.Tone.Limiter(-1);
     this.master.chain(this.delay, this.reverb, this.limiter, this.Tone.Destination);
 
@@ -93,14 +97,36 @@ export class ToneEngine {
     const normalized = clamp((Number.isFinite(amount) ? amount : 0) / REVERB_UI_MAX, 0, 1);
     const shaped = normalized * normalized;
     rampParam(this.reverb.wet, clamp(shaped * 1.25, 0, 1), 0.08);
-    if (this.delay?.feedback) {
-      rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);
-    }
+    this._reverbFeedbackBase = clamp(0.72 + shaped * 0.18, 0, 0.92);
+    this._applyDelayFeedback();
+    // The longer 20s decay rings for longer at any given moment than the
+    // previous 14s did, so it accumulates more cumulative energy at high wet
+    // -- back off extra headroom as it rises to compensate, the same way
+    // setActiveVoicePower() already does for a dense patch.
+    this._reverbHeadroomDb = -shaped * 4;
+    this._applyMasterGain();
   }
 
   setDelay(amount) {
     if (!this.delay) return;
-    rampParam(this.delay.wet, clamp(amount, 0, 1), 0.05);
+    this._delayWet = clamp(Number.isFinite(amount) ? amount : 0, 0, 1);
+    rampParam(this.delay.wet, this._delayWet, 0.05);
+    this._applyDelayFeedback();
+  }
+
+  // Feedback used to be driven solely by the Reverb knob, so turning the
+  // Delay knob down only muted the wet/dry OUTPUT mix -- the internal repeat
+  // loop kept circulating at Reverb's feedback level regardless of Delay's
+  // position, and turning Delay back up later revealed whatever was still
+  // silently circulating this whole time, sounding like stale "captured"
+  // echoes that never cleared. Scaling feedback by the Delay knob too means
+  // Delay all the way down actually starves the loop so it decays away for
+  // real, instead of just muting an output that keeps refilling itself.
+  _applyDelayFeedback() {
+    if (!this.delay) return;
+    const base = this._reverbFeedbackBase ?? 0.72;
+    const wet = this._delayWet ?? 0;
+    rampParam(this.delay.feedback, clamp(base * wet, 0, 0.92), 0.05);
   }
 
   // Global 0-2 strength knob for the per-voice macro grid (1 = each preset's
@@ -122,8 +148,17 @@ export class ToneEngine {
   // needlessly quiet.
   setActiveVoicePower(powerSum) {
     if (!this.master) return;
-    const compensatedDb = BASE_MASTER_GAIN_DB - 10 * Math.log10(Math.max(1, powerSum));
-    rampParam(this.master.gain, this.Tone.dbToGain(compensatedDb), 0.3);
+    this._voicePowerDb = -10 * Math.log10(Math.max(1, powerSum));
+    this._applyMasterGain();
+  }
+
+  // Master gain is the combination of both headroom needs below, applied
+  // together instead of one overwriting the other (the same bug the
+  // delay/reverb feedback sharing had).
+  _applyMasterGain() {
+    if (!this.master) return;
+    const totalDb = BASE_MASTER_GAIN_DB + (this._voicePowerDb ?? 0) + (this._reverbHeadroomDb ?? 0);
+    rampParam(this.master.gain, this.Tone.dbToGain(totalDb), 0.3);
   }
 
   async resume() {

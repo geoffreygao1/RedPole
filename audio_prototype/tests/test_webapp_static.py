@@ -290,10 +290,31 @@ def test_synth_output_jacks_use_roman_column_labels_not_instrument_names():
 def test_reverb_high_end_is_extra_washed():
     tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
 
-    assert "this.reverb.decay = 14;" in tone_engine_js
+    assert "this.reverb.decay = 20;" in tone_engine_js
     assert "const shaped = normalized * normalized;" in tone_engine_js
     assert "rampParam(this.reverb.wet, clamp(shaped * 1.25, 0, 1), 0.08);" in tone_engine_js
-    assert "rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);" in tone_engine_js
+    # Delay feedback is now a combination of both knobs (see
+    # test_delay_feedback_actually_clears_when_delay_knob_is_lowered) --
+    # Reverb no longer ramps this.delay.feedback directly, it only sets the
+    # base that _applyDelayFeedback() then scales by the Delay knob.
+    assert "this._reverbFeedbackBase = clamp(0.72 + shaped * 0.18, 0, 0.92);" in tone_engine_js
+    assert "rampParam(this.delay.feedback, clamp(0.72 + shaped * 0.18, 0, 0.92), 0.08);" not in tone_engine_js
+
+
+def test_delay_feedback_actually_clears_when_delay_knob_is_lowered():
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
+
+    assert "_applyDelayFeedback()" in tone_engine_js
+    assert "this._delayWet = clamp(Number.isFinite(amount) ? amount : 0, 0, 1);" in tone_engine_js
+    assert "rampParam(this.delay.feedback, clamp(base * wet, 0, 0.92), 0.05);" in tone_engine_js
+
+
+def test_reverb_headroom_compensates_for_the_longer_decay():
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
+
+    assert "this._reverbHeadroomDb = -shaped * 4;" in tone_engine_js
+    assert "_applyMasterGain()" in tone_engine_js
+    assert "const totalDb = BASE_MASTER_GAIN_DB + (this._voicePowerDb ?? 0) + (this._reverbHeadroomDb ?? 0);" in tone_engine_js
 
 
 def test_tone_buffers_uses_clickbath_base_url_for_sample_loading():
