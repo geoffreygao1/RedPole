@@ -150,11 +150,13 @@ function midiToPitchClassName(midi) {
 }
 
 function rootMidiFromPitchClass(pitchClass) {
-  return 48 + Math.round(pitchClass);
+  return 36 + Math.round(pitchClass);
 }
 
 function formatTranspose(value) {
   const semitones = Math.round(value);
+  if (semitones === 24) return "+2 oct";
+  if (semitones === -24) return "-2 oct";
   if (semitones === 12) return "+1 oct";
   if (semitones === -12) return "-1 oct";
   return `${semitones > 0 ? "+" : ""}${semitones} st`;
