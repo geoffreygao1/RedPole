@@ -59,9 +59,133 @@ export const MODIFIER_PRESETS = Object.fromEntries(
   )
 );
 
+function clamp(value, lo, hi) {
+  return Math.min(hi, Math.max(lo, value));
+}
+
 function setWet(node, wet) {
   if (wet !== undefined && node.wet && "value" in node.wet) node.wet.value = wet;
   return node;
+}
+
+// Depth is a global 0-2 knob (1 = the authored preset strength, this file's
+// literal numbers). Each macro `kind` has its own notion of "stronger" --
+// scaling every kind by one generic multiplier would push a lowpass filter
+// the WRONG way (higher frequency = less filtering, not more), so each kind
+// gets its own scaling rule instead of a single formula.
+function scaleWet(baseWet, depth) {
+  return clamp((baseWet ?? 0) * depth, 0, 1);
+}
+
+function scaleDepthParam(baseDepth, depth) {
+  return clamp((baseDepth ?? 0) * depth, 0, 1);
+}
+
+function scaleGainReduction(baseGain, depth) {
+  // baseGain < 1 means "attenuated"; push further from unity as depth rises,
+  // back toward unity (no reduction) as depth falls toward 0.
+  return clamp(1 - (1 - baseGain) * depth, 0, 1);
+}
+
+function scaleFilterFrequency(baseFrequency, type, depth) {
+  const safeDepth = Math.max(depth, 0.01);
+  if (type === "highpass") return clamp(baseFrequency * safeDepth, 20, 12000);
+  return clamp(baseFrequency / safeDepth, 60, 18000);
+}
+
+function scaleEQDb(baseDb, depth) {
+  return clamp((baseDb ?? 0) * depth, -12, 12);
+}
+
+function scalePan(basePan, depth) {
+  return clamp(basePan * depth, -1, 1);
+}
+
+function scaleWidth(baseWidth, depth) {
+  // StereoWidener's neutral/unmodified-stereo point is 0.5, not 0 (0 is fully
+  // collapsed to mono) -- depth 0 must land there, not at mono.
+  return clamp(0.5 + (baseWidth - 0.5) * depth, 0, 1);
+}
+
+function scaleFeedback(baseFeedback, depth) {
+  return clamp(baseFeedback * depth, 0, 0.95);
+}
+
+// Shadow/scatter aren't audio-graph nodes (their whole effect is a
+// scheduler-triggered companion note), so their "depth" scales the values
+// scheduler.js reads at trigger time -- see ToneEngine.voiceMacroPreset().
+export function scaleTriggerPreset(preset, depth) {
+  if (preset.kind === "shadow") {
+    return { ...preset, gain: scaleWet(preset.gain, depth) };
+  }
+  if (preset.kind === "scatter") {
+    return { ...preset, gain: scaleWet(preset.gain, depth), density: scaleWet(preset.density, depth), effectDepth: depth };
+  }
+  return preset;
+}
+
+// Tone.js exposes some of these (wet, gain, frequency) as Param objects with
+// a settable .value, and others (e.g. an effect's `depth`) as plain numeric
+// properties depending on the node class -- set whichever shape it actually
+// is rather than assuming, so this can't throw if a given build differs.
+function setParam(node, key, value) {
+  const param = node?.[key];
+  if (param && typeof param === "object" && "value" in param) {
+    param.value = value;
+  } else if (typeof param === "number") {
+    node[key] = value;
+  }
+}
+
+function applyDepthToNode(node, preset, depth) {
+  switch (preset.kind) {
+    case "gain":
+      setParam(node, "gain", scaleGainReduction(preset.gain, depth));
+      return;
+    case "filter":
+      setParam(node, "frequency", scaleFilterFrequency(preset.frequency, preset.type ?? "lowpass", depth));
+      return;
+    case "eq":
+      setParam(node, "low", scaleEQDb(preset.low, depth));
+      setParam(node, "mid", scaleEQDb(preset.mid, depth));
+      setParam(node, "high", scaleEQDb(preset.high, depth));
+      return;
+    case "chorus":
+    case "tremolo":
+    case "autoFilter":
+    case "autoPanner":
+    case "vibrato":
+      setParam(node, "wet", scaleWet(preset.wet, depth));
+      setParam(node, "depth", scaleDepthParam(preset.depth, depth));
+      return;
+    case "delay":
+      setParam(node, "wet", scaleWet(preset.wet, depth));
+      setParam(node, "feedback", scaleFeedback(preset.feedback, depth));
+      return;
+    case "pan":
+      setParam(node, "pan", scalePan(preset.pan, depth));
+      return;
+    case "widener":
+      setParam(node, "width", scaleWidth(preset.width, depth));
+      return;
+    default:
+      return; // shadow/scatter: no audio-graph node to touch
+  }
+}
+
+// Re-applies depth scaling to an already-built macro's LIVE nodes, always
+// relative to the original authored preset (macro.preset) so repeated calls
+// don't compound. Called both right after createMacroNode() and whenever the
+// global Depth knob changes.
+export function applyDepthToMacro(macro, depth) {
+  if (!macro) return;
+  const preset = macro.preset;
+  if (preset.kind === "series") {
+    const subNodes = macro.nodes.slice(1, -1);
+    subNodes.forEach((node, i) => applyDepthToNode(node, preset.nodes[i], depth));
+  } else {
+    applyDepthToNode(macro.nodes[0], preset, depth);
+  }
 }
 
 function startIfLfo(node) {
@@ -115,9 +239,10 @@ function buildNode(Tone, preset) {
   }
 }
 
-export function createMacroNode(Tone, presetId) {
+export function createMacroNode(Tone, presetId, depth = 1) {
   const preset = MODIFIER_PRESETS[presetId];
   if (!preset) throw new Error(`Unknown macro preset: ${presetId}`);
+  let macro;
   if (preset.kind === "series") {
     const input = new Tone.Gain(1);
     const output = new Tone.Gain(1);
@@ -128,8 +253,11 @@ export function createMacroNode(Tone, presetId) {
       current = node;
     }
     current.connect(output);
-    return { input, output, nodes: [input, ...nodes, output], preset };
+    macro = { input, output, nodes: [input, ...nodes, output], preset };
+  } else {
+    const node = setWet(buildNode(Tone, preset), preset.wet);
+    macro = { input: node, output: node, nodes: [node], preset };
   }
-  const node = setWet(buildNode(Tone, preset), preset.wet);
-  return { input: node, output: node, nodes: [node], preset };
+  applyDepthToMacro(macro, depth);
+  return macro;
 }

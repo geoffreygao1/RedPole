@@ -109,12 +109,20 @@ def test_synth_mode_routes_patch_cables_to_macro_grid():
 def test_synth_mode_has_global_transpose_control():
     index_html = (ROOT / "webapp" / "index.html").read_text()
     main_js = (ROOT / "webapp" / "main.js").read_text()
+    scheduler_js = (ROOT / "webapp" / "scheduler.js").read_text()
+    tone_engine_js = (ROOT / "webapp" / "tone_engine.js").read_text()
 
-    assert '<input id="transpose-slider" type="range" min="-24" max="24" step="0.01" value="0"' in index_html
+    # Transpose moved from a global real-time PitchShift effect (audibly
+    # grainy on a dense summed mix) to whole-octave steps applied to each
+    # voice's own sampler pitch (lines up with real recorded samples instead).
+    assert '<input id="transpose-slider" type="range" min="-12" max="12" step="12" value="0"' in index_html
     assert 'this.transposeSlider = document.getElementById("transpose-slider");' in main_js
-    assert 'this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value))' in main_js
-    assert 'this.synthEngine?.setTranspose(parseFloat(e.target.value));' in main_js
+    assert 'this.scheduler.setTranspose(parseFloat(this.transposeSlider.value))' in main_js
+    assert 'this.scheduler?.setTranspose(parseFloat(e.target.value));' in main_js
     assert "formatTranspose(value)" in main_js
+    assert "setTranspose(semitones)" in scheduler_js
+    assert "this.transposeSemitones = Math.round(value / 12) * 12;" in scheduler_js
+    assert "PitchShift" not in tone_engine_js
     assert 'if (semitones === 12) return "+1 oct";' in main_js
     assert 'if (semitones === -12) return "-1 oct";' in main_js
 
@@ -585,7 +593,7 @@ def test_webapp_generative_suite_passes_node_test():
         pytest.skip("node is not installed")
 
     result = subprocess.run(
-        [node, "--test", "webapp/generative/", "webapp/scheduler.test.js"],
+        [node, "--test", "webapp/generative/", "webapp/scheduler.test.js", "webapp/modifiers.test.js"],
         cwd=ROOT,
         text=True,
         capture_output=True,

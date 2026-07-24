@@ -86,6 +86,14 @@ test("HarmonicField.octaveSpread() reflects the current mood", () => {
   assert.equal(f.octaveSpread(), 2);
 });
 
+test("mysterious adds a rare flatSecond a half-step above root", () => {
+  const f = new HarmonicField(48, true, "mysterious");
+  assert.equal(f.midiForRole("flatSecond"), 49);
+  assert.ok(f.palette.weights.flatSecond > 0 && f.palette.weights.flatSecond < 0.15);
+  const total = Object.values(f.palette.weights).reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(total - 1) < 1e-9);
+});
+
 test("isFoundationRole flags only root and fifth", () => {
   assert.ok(isFoundationRole("root"));
   assert.ok(isFoundationRole("fifth"));

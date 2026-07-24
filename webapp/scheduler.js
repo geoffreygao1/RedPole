@@ -1,5 +1,5 @@
 import { VoiceConductor } from "./generative/conductor.js";
-import { HarmonicField } from "./generative/harmony.js?v=20260723-root-note-scale";
+import { HarmonicField, MIN_VOICE_MIDI, MAX_VOICE_MIDI } from "./generative/harmony.js?v=20260723-root-note-scale";
 import { PitchAllocator } from "./generative/allocator.js?v=20260723-trigger-families";
 import { mulberry32 } from "./generative/rng.js";
 import { shadowMidi, scatterMidi, ticksForSeconds } from "./generative/voicing.js";
@@ -55,6 +55,7 @@ export class Scheduler {
     this.Tone = tone;
     this.seed = seed;
     this.rootMidi = 36;
+    this.transposeSemitones = 0;
     this.field = new HarmonicField(this.rootMidi);
     this.allocator = new PitchAllocator(this.field);
     this.conductor = new VoiceConductor({ seed, minPeriod: 20, maxPeriod: 90, smoothTau: 1.2 });
@@ -121,9 +122,24 @@ export class Scheduler {
     }
   }
 
+  // Whole-octave steps only. An octave lines up with real recorded samples
+  // (piano/tapebell/casio/strings all sample every octave), so shifting by
+  // exact octaves and letting the sampler pick the nearest real sample sounds
+  // far cleaner than running the whole mix through a real-time granular
+  // PitchShift effect (the previous approach) ever did.
+  setTranspose(semitones) {
+    const value = Number.isFinite(semitones) ? semitones : 0;
+    this.transposeSemitones = Math.round(value / 12) * 12;
+  }
+
   midiForVoice(voice) {
     const { role, octave, detuneCents } = voice.assignment;
-    return this.rootMidi + this.field.semitoneForRole(role) + 12 * octave + detuneCents / 100.0;
+    const midi = this.rootMidi + this.field.semitoneForRole(role) + 12 * octave + this.transposeSemitones + detuneCents / 100.0;
+    return clamp(midi, MIN_VOICE_MIDI, MAX_VOICE_MIDI);
+  }
+
+  _applyTranspose(midi) {
+    return clamp(midi + this.transposeSemitones, MIN_VOICE_MIDI, MAX_VOICE_MIDI);
   }
 
   immediateDuration(voice) {
@@ -145,6 +161,22 @@ export class Scheduler {
     }
   }
 
+  // At the authored default (Effect Depth 100%) a voice's primary retrigger
+  // always lands on its fixed home pitch, same as before Effect Depth
+  // existed. Pushing depth above 100% introduces a rising chance of landing
+  // on a different (still scale-respecting, ceiling-bounded) pitch instead --
+  // this is the "a C source has an increased chance of retriggering at a
+  // different pitch at higher depth" behavior, independent of which macro
+  // (if any) the voice is cabled to.
+  _retriggerMidi(voice) {
+    const depth = this.engine.macroDepth ?? 1;
+    const chance = clamp((depth - 1) * 0.5, 0, 0.5);
+    if (chance > 0 && voice.rng() < chance) {
+      return this._applyTranspose(scatterMidi(this.field, voice.rng, voice.assignment, depth));
+    }
+    return this.midiForVoice(voice);
+  }
+
   _triggerCompanions(voiceId, voice) {
     const preset = this.engine.voiceMacroPreset(voiceId);
     if (!preset) return;
@@ -152,7 +184,7 @@ export class Scheduler {
     if (preset.kind === "shadow") {
       this.engine.triggerAccent(voiceId, shadowMidi(baseMidi, preset.interval), 0.6, preset.gain);
     } else if (preset.kind === "scatter" && voice.rng() < preset.density) {
-      this.engine.triggerAccent(voiceId, scatterMidi(this.field, voice.rng, voice.assignment), 0.5, preset.gain);
+      this.engine.triggerAccent(voiceId, this._applyTranspose(scatterMidi(this.field, voice.rng, voice.assignment, preset.effectDepth)), 0.5, preset.gain);
     }
   }
 
@@ -180,6 +212,9 @@ export class Scheduler {
     for (const id of activeIds) {
       this.engine.setVoiceGain(id, gains.get(id) ?? 0, 0.18);
     }
+    let powerSum = 0;
+    for (const gain of gains.values()) powerSum += gain * gain;
+    this.engine.setActiveVoicePower?.(powerSum);
     for (const id of activeIds) {
       const voice = this.voices.get(id);
       if (!voice) continue;
@@ -218,7 +253,7 @@ export class Scheduler {
       }
       const dur = voice.behavior === "bell" ? 1.8 : 2.4;
       voice.lastTriggerTick = currentTick;
-      this.engine.triggerVoice(id, this.midiForVoice(voice), dur);
+      this.engine.triggerVoice(id, this._retriggerMidi(voice), dur);
       this._triggerCompanions(id, voice);
       if (inBurst) {
         voice.burstRemaining -= 1;

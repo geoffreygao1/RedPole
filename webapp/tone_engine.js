@@ -1,10 +1,11 @@
 import { CLICKBATH_BASE_URL, INSTRUMENT_NOTE_URLS } from "./generative/instrument-maps.js";
 import { midiToHz } from "./generative/harmony.js";
-import { createMacroNode } from "./modifiers.js";
+import { createMacroNode, applyDepthToMacro, scaleTriggerPreset } from "./modifiers.js";
 
 const NEGATIVE_INFINITY_DB = -Infinity;
 const DEFAULT_CONNECTED_GAIN = 0.55;
 const REVERB_UI_MAX = 1.5;
+const BASE_MASTER_GAIN_DB = -6;
 
 // One shared Transport tempo for every voice's trigger grid, so patterns are
 // phase-locked to a single clock instead of each source's own scanned BPM
@@ -56,25 +57,24 @@ export class ToneEngine {
     this.master = null;
     this.delay = null;
     this.reverb = null;
-    this.transpose = null;
     this.limiter = null;
     this.buffers = null;
     this.voices = new Map();
     this._started = false;
+    this.macroDepth = 1;
   }
 
   async init() {
     if (this.master) return;
     this.Tone.Transport.bpm.value = TRANSPORT_BPM;
-    this.master = new this.Tone.Gain(this.Tone.dbToGain(-6));
+    this.master = new this.Tone.Gain(this.Tone.dbToGain(BASE_MASTER_GAIN_DB));
     // Extends clickbath's wash character with a longer tail and tempo-synced
     // feedback delay for a denser max-wet sound bath.
     this.delay = new this.Tone.FeedbackDelay({ delayTime: "4n", feedback: 0.78, wet: 0 });
     this.reverb = new this.Tone.Reverb({ decay: 14, preDelay: 0.05, wet: 0 });
     this.reverb.decay = 14;
-    this.transpose = new this.Tone.PitchShift({ pitch: 0, windowSize: 0.08, delayTime: 0.03, feedback: 0, wet: 1 });
     this.limiter = new this.Tone.Limiter(-1);
-    this.master.chain(this.transpose, this.delay, this.reverb, this.limiter, this.Tone.Destination);
+    this.master.chain(this.delay, this.reverb, this.limiter, this.Tone.Destination);
 
     // Decode every instrument sample ONCE. Per-voice samplers reference these
     // shared buffers (see _buildNodes) instead of re-fetching/re-decoding.
@@ -103,11 +103,27 @@ export class ToneEngine {
     rampParam(this.delay.wet, clamp(amount, 0, 1), 0.05);
   }
 
-  setTranspose(semitones) {
-    if (!this.transpose) return;
-    const value = Number.isFinite(semitones) ? semitones : 0;
-    // Tone 14.7.77 exposes PitchShift.pitch as a numeric property, not a Param.
-    this.transpose.pitch = clamp(value, -24, 24);
+  // Global 0-2 strength knob for the per-voice macro grid (1 = each preset's
+  // authored default). Re-applies live to every currently-connected voice's
+  // macro so dragging the knob is heard immediately, not just on new cables.
+  setMacroDepth(amount) {
+    this.macroDepth = clamp(Number.isFinite(amount) ? amount : 1, 0, 2);
+    for (const voice of this.voices.values()) {
+      if (voice.macro) applyDepthToMacro(voice.macro, this.macroDepth);
+    }
+  }
+
+  // Master gain was a fixed -6dB regardless of how many voices were actually
+  // summing into it -- fine for 1-2 voices, not enough headroom once a dense
+  // patch has several simultaneously-loud (foreground-role) voices adding up.
+  // powerSum is the sum of each active voice's current gain squared (from the
+  // conductor), an approximation of aggregate signal power; back off further
+  // as it rises so a dense patch doesn't clip while a sparse one isn't left
+  // needlessly quiet.
+  setActiveVoicePower(powerSum) {
+    if (!this.master) return;
+    const compensatedDb = BASE_MASTER_GAIN_DB - 10 * Math.log10(Math.max(1, powerSum));
+    rampParam(this.master.gain, this.Tone.dbToGain(compensatedDb), 0.3);
   }
 
   async resume() {
@@ -116,7 +132,19 @@ export class ToneEngine {
     this.Tone.Transport.start();
   }
 
+  // Transport.pause() only stops the scheduler's clock -- it does not
+  // silence anything already sounding. Held pad/bloom/drone voices trigger
+  // via triggerAttack with no matching triggerRelease until _tick() decides
+  // to move them, so without this they keep sustaining (and feeding the
+  // shared reverb/delay wash) indefinitely through a pause, which read as
+  // "reverb and delay keep going" even after pressing pause.
   pause() {
+    for (const voice of this.voices.values()) {
+      if (voice.held && voice.nodes) {
+        voice.nodes.sampler.triggerRelease();
+        voice.held = false;
+      }
+    }
     this.Tone.Transport.pause();
   }
 
@@ -216,7 +244,7 @@ export class ToneEngine {
       }
       return;
     }
-    const nextMacro = createMacroNode(this.Tone, macroId);
+    const nextMacro = createMacroNode(this.Tone, macroId, this.macroDepth);
     this._disposeMacro(voice);
     voice.macro = nextMacro;
     voice.macroId = macroId;
@@ -275,11 +303,18 @@ export class ToneEngine {
   // held-note gate in triggerVoice(). Used by shadow (fixed-interval overtone)
   // and scatter (wandering pitch echo) macros so they can layer a note on top
   // of an already-sustaining pad/bloom/drone voice.
+  //
+  // The companion's velocity is scaled by the voice's CURRENT conductor-driven
+  // gain, not fired at a fixed level -- otherwise a companion note sums with
+  // an already-near-full-gain foreground voice's own sample (both play through
+  // the same sampler/volume/master chain) with no headroom accounted for,
+  // which is what was causing clipping on dense/stacked patches.
   triggerAccent(voiceId, midi, durationSeconds, velocity = 1) {
     const voice = this.voices.get(voiceId);
     if (!voice || !voice.nodes || !voice.connected || !voice.macro) return;
     const frequency = midiToHz(midi);
-    voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds, undefined, clamp(velocity, 0, 1));
+    const currentGain = this.Tone.dbToGain(voice.nodes.volume.volume.value);
+    voice.nodes.sampler.triggerAttackRelease(frequency, durationSeconds, undefined, clamp(velocity * currentGain, 0, 1));
   }
 
   isVoiceHeld(voiceId) {
@@ -287,7 +322,8 @@ export class ToneEngine {
   }
 
   voiceMacroPreset(voiceId) {
-    return this.voices.get(voiceId)?.macro?.preset ?? null;
+    const preset = this.voices.get(voiceId)?.macro?.preset ?? null;
+    return preset ? scaleTriggerPreset(preset, this.macroDepth) : null;
   }
 
   releaseVoice(voiceId) {

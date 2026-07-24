@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mulberry32 } from "./rng.js";
 import { HarmonicField, ROLE_SEMITONES } from "./harmony.js";
 import { PitchAllocator, bandForHz } from "./allocator.js";
+import { MAX_VOICE_MIDI } from "./harmony.js";
 
 test("bandForHz classifies", () => {
   assert.equal(bandForHz(60), "sub");
@@ -43,4 +44,14 @@ test("melancholy (spread 0) always starts the octave search at 0", () => {
   const alloc = new PitchAllocator(field);
   const a = alloc.allocate(1, mulberry32(1), 0.1, "foreground");
   assert.equal(a.octave, 0);
+});
+
+test("allocate never returns a pitch above MAX_VOICE_MIDI, even at a high root with a dense crowded optimistic patch", () => {
+  const field = new HarmonicField(60, true, "optimistic"); // ROOT_MAX
+  const alloc = new PitchAllocator(field);
+  for (let vid = 0; vid < 25; vid++) {
+    const a = alloc.allocate(vid, mulberry32(vid + 1), 0.9, "foreground");
+    const runtimeMidi = field.rootMidi + field.semitoneForRole(a.role) + 12 * a.octave;
+    assert.ok(runtimeMidi <= MAX_VOICE_MIDI, `voice ${vid} runtime midi ${runtimeMidi} exceeds ceiling`);
+  }
 });

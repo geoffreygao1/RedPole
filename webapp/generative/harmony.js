@@ -19,8 +19,10 @@ export const HARMONIC_PALETTES = {
   },
   mysterious: {
     // Clickbath mystery uses a minor/flat-six color; Root supplies the key.
-    semitones: { root: 0, minorThird: 3, fifth: 7, flatSixth: 8 },
-    weights: { root: 0.32, minorThird: 0.24, fifth: 0.24, flatSixth: 0.2 },
+    // Adds a rare flatSecond (a half-step above root) for occasional
+    // unsettling color on top of that base.
+    semitones: { root: 0, flatSecond: 1, minorThird: 3, fifth: 7, flatSixth: 8 },
+    weights: { root: 0.28, flatSecond: 0.08, minorThird: 0.22, fifth: 0.22, flatSixth: 0.2 },
   },
   melancholy: {
     // Clickbath melancholy explicitly uses C, D, Eb, G.
@@ -28,6 +30,19 @@ export const HARMONIC_PALETTES = {
     weights: { root: 0.34, second: 0.16, minorThird: 0.26, fifth: 0.24 },
   },
 };
+
+// Ceiling for any voice's pitch, primary or macro-triggered (shadow/scatter
+// companions). Matches the highest multisampled note most instruments in
+// instrument-maps.js provide (piano/tapebell/casio/strings/flute/clarinet all
+// go up to 84), so Tone.Sampler never has to pitch-shift more than a few
+// semitones from a real sample -- avoids the thin/artificial "too high
+// pitched" sound of shifting several octaves from the nearest sample.
+export const MAX_VOICE_MIDI = 84;
+
+// Matches the lowest multisampled note any instrument provides (tapeguitar's
+// lowest is 36); used as a floor so a downward octave transpose can't push a
+// voice further below any real sample than this.
+export const MIN_VOICE_MIDI = 36;
 
 export const MOOD_OCTAVE_SPREAD = {
   optimistic: 2,

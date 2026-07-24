@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Scheduler } from "./scheduler.js";
+import { MIN_VOICE_MIDI, MAX_VOICE_MIDI } from "./generative/harmony.js";
 
 function fakeTone(dtSeconds = 0.25) {
   return {
@@ -9,10 +10,11 @@ function fakeTone(dtSeconds = 0.25) {
   };
 }
 
-function fakeEngine(presetsByVoice = new Map()) {
+function fakeEngine(presetsByVoice = new Map(), macroDepth = 1) {
   const calls = { setVoiceMacro: [], releaseVoice: [], triggerVoice: [], setVoiceGain: [], triggerAccent: [] };
   return {
     calls,
+    macroDepth,
     setVoiceMacro(id, macroId) { calls.setVoiceMacro.push([id, macroId]); },
     releaseVoice(id) { calls.releaseVoice.push(id); },
     triggerVoice(id, midi, dur) { calls.triggerVoice.push([id, midi, dur]); },
@@ -105,4 +107,63 @@ test("held voices reassign pitch and crossfade (release+retrigger) at their revo
   scheduler._tick();
   assert.notEqual(voice.assignment, before);
   assert.ok(engine.calls.releaseVoice.includes(9));
+});
+
+test("_retriggerMidi always returns the fixed home pitch at Effect Depth 100% (unchanged baseline)", () => {
+  const engine = fakeEngine(new Map(), 1);
+  const scheduler = new Scheduler(engine, { Tone: fakeTone(), seed: 1 });
+  scheduler.addVoice(10, { behavior: "pluck" });
+  const voice = scheduler.voices.get(10);
+  const home = scheduler.midiForVoice(voice);
+  for (let i = 0; i < 30; i++) {
+    assert.equal(scheduler._retriggerMidi(voice), home);
+  }
+});
+
+test("_retriggerMidi has a rising chance of a different pitch above Effect Depth 100%", () => {
+  const engine = fakeEngine(new Map(), 2); // 200%, the new max
+  const scheduler = new Scheduler(engine, { Tone: fakeTone(), seed: 1 });
+  scheduler.addVoice(11, { behavior: "pluck" });
+  const voice = scheduler.voices.get(11);
+  const home = scheduler.midiForVoice(voice);
+  let sawDifferentPitch = false;
+  for (let i = 0; i < 60; i++) {
+    if (scheduler._retriggerMidi(voice) !== home) sawDifferentPitch = true;
+  }
+  assert.ok(sawDifferentPitch, "expected at least one alternate pitch across 60 draws at 200% depth");
+});
+
+test("setTranspose snaps to the nearest whole octave", () => {
+  const scheduler = new Scheduler(fakeEngine(), { Tone: fakeTone(), seed: 1 });
+  scheduler.setTranspose(12);
+  assert.equal(scheduler.transposeSemitones, 12);
+  scheduler.setTranspose(-12);
+  assert.equal(scheduler.transposeSemitones, -12);
+  scheduler.setTranspose(0);
+  assert.equal(scheduler.transposeSemitones, 0);
+  scheduler.setTranspose(7); // any stray value still snaps to a full octave
+  assert.equal(scheduler.transposeSemitones, 12);
+});
+
+test("midiForVoice shifts by exactly the transpose amount", () => {
+  const scheduler = new Scheduler(fakeEngine(), { Tone: fakeTone(), seed: 1 });
+  scheduler.addVoice(12, { behavior: "pluck" });
+  const voice = scheduler.voices.get(12);
+  const untransposed = scheduler.midiForVoice(voice);
+  scheduler.setTranspose(12);
+  assert.equal(scheduler.midiForVoice(voice), untransposed + 12);
+  scheduler.setTranspose(-12);
+  assert.equal(scheduler.midiForVoice(voice), Math.max(untransposed - 12, MIN_VOICE_MIDI));
+});
+
+test("midiForVoice never exceeds the sampler pitch ceiling/floor even with transpose applied", () => {
+  const scheduler = new Scheduler(fakeEngine(), { Tone: fakeTone(), seed: 1 });
+  scheduler.setRoot(60); // ROOT_MAX
+  scheduler.field.setMood("optimistic");
+  scheduler.addVoice(13, { behavior: "pluck" });
+  const voice = scheduler.voices.get(13);
+  scheduler.setTranspose(12);
+  assert.ok(scheduler.midiForVoice(voice) <= MAX_VOICE_MIDI);
+  scheduler.setTranspose(-12);
+  assert.ok(scheduler.midiForVoice(voice) >= MIN_VOICE_MIDI);
 });

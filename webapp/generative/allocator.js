@@ -1,5 +1,5 @@
 // Port of soundscape_harmony.py's register logic + PitchAllocator.
-import { isFoundationRole, midiToHz } from "./harmony.js";
+import { isFoundationRole, midiToHz, MAX_VOICE_MIDI } from "./harmony.js";
 import { uniform } from "./rng.js";
 
 const REGISTER_BANDS = [
@@ -54,6 +54,17 @@ export class PitchAllocator {
       midi = this.field.midiForRole(finalRole, octave);
       band = bandForHz(midiToHz(midi));
     }
+    // Ceiling: octaveSpread's higher starting octave and the crowding loop's
+    // own increments were never bounded together, so a dense patch could
+    // stack both and reach a pitch far above any real sample. Pull the
+    // octave back down (not just clamp the returned midi) since scheduler.js
+    // recomputes pitch from role+octave at trigger time, not from this
+    // return value.
+    while (midi > MAX_VOICE_MIDI && octave > 0) {
+      octave -= 1;
+      midi = this.field.midiForRole(finalRole, octave);
+    }
+    band = bandForHz(midiToHz(midi));
     const limit = DETUNE_CENTS_RANGE[detuneClass] ?? DETUNE_CENTS_RANGE.foreground;
     const detuneCents = uniform(rng, -limit, limit);
     this._register(vid, band);

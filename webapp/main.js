@@ -155,8 +155,6 @@ function rootMidiFromPitchClass(pitchClass) {
 
 function formatTranspose(value) {
   const semitones = Math.round(value);
-  if (semitones === 24) return "+2 oct";
-  if (semitones === -24) return "-2 oct";
   if (semitones === 12) return "+1 oct";
   if (semitones === -12) return "-1 oct";
   return `${semitones > 0 ? "+" : ""}${semitones} st`;
@@ -210,6 +208,7 @@ class App {
     this.reverbSlider = document.getElementById("reverb-slider");
     this.delaySlider = document.getElementById("delay-slider");
     this.transposeSlider = document.getElementById("transpose-slider");
+    this.macroDepthSlider = document.getElementById("macro-depth-slider");
     this.moodSelect = document.getElementById("mood-select");
     this.knobControls = Array.from(document.querySelectorAll(".knob-control input[type='range']"));
 
@@ -283,6 +282,7 @@ class App {
     toggleLabel(this.reverbSlider, !synth);
     toggleLabel(this.delaySlider, !synth);
     toggleLabel(this.transposeSlider, !synth);
+    toggleLabel(this.macroDepthSlider, !synth);
     this.loadLoopButton?.classList.toggle("hidden", synth);
     document.getElementById("debug")?.classList.toggle("hidden", synth);
     this.modeSwitchButton?.classList.toggle("synth", synth);
@@ -301,7 +301,8 @@ class App {
     if (this.moodSelect) this.scheduler.setMood(this.moodSelect.value);
     if (this.reverbSlider) this.synthEngine.setReverb(parseFloat(this.reverbSlider.value));
     if (this.delaySlider) this.synthEngine.setDelay(parseFloat(this.delaySlider.value));
-    if (this.transposeSlider) this.synthEngine.setTranspose(parseFloat(this.transposeSlider.value));
+    if (this.transposeSlider) this.scheduler.setTranspose(parseFloat(this.transposeSlider.value));
+    if (this.macroDepthSlider) this.synthEngine.setMacroDepth(parseFloat(this.macroDepthSlider.value));
     this.synthReady = true;
     this.statusEl.classList.add("hidden");
   }
@@ -426,7 +427,13 @@ class App {
     if (this.transposeSlider) {
       this.transposeSlider.addEventListener("input", (e) => {
         this.syncKnobControl(e.target);
-        this.synthEngine?.setTranspose(parseFloat(e.target.value));
+        this.scheduler?.setTranspose(parseFloat(e.target.value));
+      });
+    }
+    if (this.macroDepthSlider) {
+      this.macroDepthSlider.addEventListener("input", (e) => {
+        this.syncKnobControl(e.target);
+        this.synthEngine?.setMacroDepth(parseFloat(e.target.value));
       });
     }
     document.getElementById("wet-dry-slider").addEventListener("input", (e) => this.syncKnobControl(e.target));
@@ -887,6 +894,8 @@ class App {
       output.textContent = midiToPitchClassName(value);
     } else if (input.id === "transpose-slider") {
       output.textContent = formatTranspose(value);
+    } else if (input.id === "macro-depth-slider") {
+      output.textContent = `${Math.round(value * 100)}%`;
     } else {
       output.textContent = `${Math.round(norm * 100)}%`;
     }
@@ -970,10 +979,12 @@ class App {
     }
 
     for (let row = 0; row < PATCH_GRID_ROWS; row++) {
-      ctx.fillStyle = "#888";
-      ctx.font = "9px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(this.outputRowLabel(row), OUTPUT_GRID_X - 34, OUTPUT_GRID_Y + row * PATCH_CELL + 14);
+      if (this.mode !== "synth") {
+        ctx.fillStyle = "#888";
+        ctx.font = "9px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(this.outputRowLabel(row), OUTPUT_GRID_X - 34, OUTPUT_GRID_Y + row * PATCH_CELL + 14);
+      }
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = OUTPUT_GRID_X + col * PATCH_CELL;
         const y0 = OUTPUT_GRID_Y + row * PATCH_CELL;
@@ -995,10 +1006,12 @@ class App {
     }
 
     for (let row = 0; row < PATCH_GRID_ROWS; row++) {
-      ctx.fillStyle = "#d5d5d5";
-      ctx.font = "9px sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText(rowLabels[row], PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10, PATCH_GRID_Y + row * PATCH_CELL + 14);
+      if (this.mode !== "synth") {
+        ctx.fillStyle = "#d5d5d5";
+        ctx.font = "9px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(rowLabels[row], PATCH_GRID_X + PATCH_GRID_COLS * PATCH_CELL + 10, PATCH_GRID_Y + row * PATCH_CELL + 14);
+      }
       ctx.textAlign = "left";
       for (let col = 0; col < PATCH_GRID_COLS; col++) {
         const x0 = PATCH_GRID_X + col * PATCH_CELL;
